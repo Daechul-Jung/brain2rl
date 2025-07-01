@@ -1,0 +1,4 @@
+# Ignore data folder and any CSV files
+data/
+dataset.csv
+*.csv

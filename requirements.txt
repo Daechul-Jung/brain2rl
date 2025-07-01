@@ -1,0 +1,52 @@
+# Core libraries
+numpy>=1.20.0
+scipy>=1.6.0
+matplotlib>=3.3.0
+pandas>=1.2.0
+scikit-learn>=0.24.0
+
+# Deep learning
+torch>=1.8.0
+torchvision>=0.9.0
+torchaudio>=0.8.0
+tensorboard>=2.4.0
+
+# Signal processing
+mne>=0.23.0  # For EEG data processing
+nibabel>=3.2.0  # For fMRI data processing
+pyriemann>=0.2.6  # For covariance-based classification
+
+# Reinforcement learning
+gym>=0.18.0
+stable-baselines3>=1.0
+
+# ROS2 and simulation
+# Note: ROS2 and Gazebo should be installed separately following their official documentation
+# These Python packages require ROS2 to be installed first
+# Do not pip install these directly - they should be available from your ROS2 installation
+# Uncomment if needed for development reference:
+# rclpy
+# ros2pkg
+# ros2topic
+# cv_bridge
+# sensor_msgs
+# std_msgs
+# geometry_msgs
+# launch
+# launch_ros
+
+# Optional ROS2 Python tools that can be pip installed
+transforms3d>=0.3.1  # For 3D transformations in robotics
+empy>=3.3.4  # Template system used in ROS2
+lark>=1.1.1  # Parsing toolkit used by ROS2
+
+# Utilities
+jupyter>=1.0.0
+tqdm>=4.60.0
+pillow>=8.2.0
+h5py>=3.2.0
+
+# Brain-computer interface
+pyOpenBCI>=0.13  # Optional for real BCI device interfacing 
+
+# Project setup
