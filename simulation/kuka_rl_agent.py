@@ -100,7 +100,7 @@ class KUKAPPOAgent:
         # Memory
         self.memory = []
         
-        print(f"✓ PPO Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
+        print(f"PPO Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
     
     def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
         """Get action from policy"""
@@ -276,7 +276,7 @@ class KUKASACAgent:
         # Replay buffer
         self.replay_buffer = deque(maxlen=self.buffer_size)
         
-        print(f"✓ SAC Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
+        print(f"SAC Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
     
     def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
         """Get action from policy"""

@@ -1,13 +1,22 @@
 """
-Simulation interface for brain-guided agents with ROS2
+Simulation interface for KUKA RL system
 """
 
-from .ros_interface import (
-    BrainROSInterface,
-    run_simulation,
-    # Mock classes for simulation without ROS2
-    MockROS2Node,
-    MockPublisher,
-    MockSubscription,
-    MockMessage
-) 
+# Import available simulation modules
+try:
+    from .kuka_gym_environment import KUKAGymEnvironment
+    from .kuka_rl_agent import KUKARLAgent
+    from .kuka_ros_controller import KUKARosController
+    from .kuka_gazebo_world import KUKAGazeboWorld
+    SIMULATION_AVAILABLE = True
+except ImportError as e:
+    print(f"WARNING: Some simulation modules not available: {e}")
+    SIMULATION_AVAILABLE = False
+
+__all__ = [
+    'KUKAGymEnvironment',
+    'KUKARLAgent', 
+    'KUKARosController',
+    'KUKAGazeboWorld',
+    'SIMULATION_AVAILABLE'
+] 
