@@ -25,8 +25,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from brain2rl.models.classification.action_classifier import EEGConvNet
-from brain2rl.utils.data_utils import load_sensor_data, preprocess_sensor_data
+from models.classification.action_classifier import EEGConvNet
+from utils.data_utils import load_sensor_data, preprocess_sensor_data
 
 
 class SensorDataset(Dataset):

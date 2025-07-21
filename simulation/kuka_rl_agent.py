@@ -35,7 +35,10 @@ except ImportError:
 from simulation.kuka_gym_environment import KUKAGymEnvironment
 
 class KUKANeuralNetwork(nn.Module):
-    """Neural network for KUKA arm control"""
+    """
+    Neural network for KUKA arm control
+    Later I should fix this part more
+    """
     
     def __init__(self, input_dim: int, output_dim: int, hidden_dims: List[int] = [256, 256, 128]):
         super(KUKANeuralNetwork, self).__init__()

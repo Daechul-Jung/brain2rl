@@ -4,7 +4,7 @@ import torch.optim as optim
 import numpy as np
 from collections import deque
 import random
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Union
 import gym
 
 class DQNAgent:
@@ -109,8 +109,7 @@ class DQNAgent:
 
 class PPOAgent:
     """Proximal Policy Optimization Agent"""
-    def __init__(
-        self,
+    def __init__(self,
         state_size: int,
         action_size: int,
         learning_rate: float = 0.0003,

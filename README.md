@@ -33,7 +33,7 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌──────────────────┐
 │   Sensor Data   │───▶│  Classification  │───▶│  Tokenization   │───▶│   RL Training    │
-│  (EEG/IMU/etc)  │    │   (CNN Model)    │    │ (Transformer +  │    │ (PPO/SAC with    │
+│  (EEG/IMU/etc)  │    │                  │    │ (Transformer +  │    │ (PPO/SAC with    │
 │                 │    │                  │    │  Attention)     │    │  Token Guidance) │
 └─────────────────┘    └──────────────────┘    └─────────────────┘    └──────────────────┘
                                                         │                        │
@@ -46,7 +46,7 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 
 ### Key Features
 
-- **Multi-modal sensor support**: EEG, fMRI, IMU, and other physiological signals
+- **Multi-modal sensor support**: EEG, fMRI, MEG, and other brain signals
 - **Advanced tokenization**: Transformer-based architecture with attention mechanisms
 - **Token-guided RL**: Novel approach using brain signal tokens to guide robot learning
 - **Real-time simulation**: Full Gazebo + ROS2 integration with KUKA robot models
@@ -66,7 +66,7 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 ### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/your-org/brain2rl.git
+git clone https://github.com/Daechul-Jung/brain2rl.git
 cd brain2rl
 ```
 
@@ -518,11 +518,11 @@ brain2rl/
 │   ├── rl_training_pipeline.py   # RL training component
 │   └── simulation_pipeline.py    # Simulation component
 ├── models/                        # Model architectures
-│   ├── classification/           # CNN models
-│   ├── tokenization/            # Transformer models
-│   └── rl/                      # RL algorithms
+│   ├── classification/           # Action classification models 
+│   ├── tokenization/            # Tokenizing time series data for trajectories
+│   └── rl/                      # RL model for KUKA with tokens
 ├── simulation/                    # Robot simulation
-│   ├── kuka_gym_environment.py  # Gym environment
+│   ├── kuka_gym_environment.py  # KUKA Gym environment
 │   ├── kuka_ros_controller.py   # ROS controller
 │   └── kuka_gazebo_world.py     # Gazebo world
 ├── utils/                         # Utilities
@@ -683,16 +683,16 @@ If you use Brain2RL in your research, please cite:
 ```bibtex
 @software{brain2rl2024,
   title={Brain2RL: End-to-End Pipeline for Brain Signal to Robot Control},
-  author={Brain2RL Team},
-  year={2024},
-  url={https://github.com/your-org/brain2rl}
+  author={Daechul Jung},
+  year={2025},
+  url={https://github.com/Daechul-Jung/brain2rl}
 }
 ```
 
 ## Contact
 
-- **Email**: brain2rl@example.com
-- **GitHub**: https://github.com/your-org/brain2rl
+- **Email**: daechul.jung@vanderbilt.edu, jungdaechul@berkeley.edu
+- **GitHub**: https://github.com/Daechul-Jung/brain2rl
 - **Documentation**: https://brain2rl.readthedocs.io
 
 ---

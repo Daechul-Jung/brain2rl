@@ -75,7 +75,7 @@ class KUKAGymEnvironment(gym.Env):
             task_type: Type of task ('reach', 'grasp', 'move', 'manipulation')
             render_mode: Rendering mode (None, 'human', 'rgb_array')
         """
-        super().__init__()  # ✅ Proper parent class initialization
+        super().__init__()  # Proper parent class initialization
         
         self.task_type = task_type
         self.render_mode = render_mode
