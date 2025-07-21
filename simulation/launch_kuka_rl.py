@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 ROS2 Launch File for KUKA RL System
 Launches Gazebo Classic with KUKA iiwa arm and RL training components
@@ -10,11 +9,8 @@ import time
 import subprocess
 import argparse
 from typing import List, Dict, Any
-
-# Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Setup ROS2 environment
 try:
     from scripts.setup_ros2_environment import setup_ros2_environment
     setup_ros2_environment()
@@ -71,9 +67,9 @@ class KUKARLLauncher:
         for package in packages:
             try:
                 __import__(package)
-                print(f"✓ {package} available")
+                print(f"{package} available")
             except ImportError:
-                print(f"✗ {package} not available")
+                print(f"{package} not available")
     
     def launch_gazebo(self, gui: bool = True, world_file: str = None) -> bool:
         """Launch Gazebo Classic simulation"""

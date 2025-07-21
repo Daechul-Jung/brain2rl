@@ -551,70 +551,6 @@ python brain2rl/core/rl_training_pipeline.py
 python brain2rl/core/simulation_pipeline.py
 ```
 
-### Debugging
-
-```bash
-# Enable debug logging
-python brain2rl/cli.py full \
-    --data-path data/test_data.npz \
-    --log-level DEBUG \
-    --log-file debug.log
-
-# Mock mode for development
-python brain2rl/cli.py simulation \
-    --model-path models/agent.pth \
-    --mock-mode \
-    --use-gazebo false
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### 1. Import Errors
-```bash
-# If you see import errors, ensure the project is in Python path
-export PYTHONPATH="${PYTHONPATH}:/path/to/brain2rl"
-```
-
-#### 2. CUDA/GPU Issues
-```bash
-# Check CUDA availability
-python -c "import torch; print(torch.cuda.is_available())"
-
-# Force CPU mode if needed
-python brain2rl/cli.py full --device cpu --data-path data.npz
-```
-
-#### 3. ROS2/Gazebo Issues
-```bash
-# Use mock mode for development
-python brain2rl/cli.py simulation \
-    --model-path agent.pth \
-    --mock-mode \
-    --use-ros false \
-    --use-gazebo false
-```
-
-#### 4. Memory Issues
-```bash
-# Reduce batch size and sequence length
-python brain2rl/cli.py tokenization \
-    --batch-size 16 \
-    --max-sequence-length 512
-```
-
-### Error Messages
-
-| Error | Solution |
-|-------|----------|
-| `CUDA out of memory` | Reduce batch size or use `--device cpu` |
-| `ROS2 not found` | Install ROS2 or use `--mock-mode` |
-| `Gazebo failed to start` | Check Gazebo installation or use `--use-gazebo false` |
-| `Data format not supported` | Convert to NPZ format using data utilities |
-
-### Performance Optimization
-
 #### GPU Acceleration
 ```bash
 # Ensure CUDA is available and properly configured
@@ -630,47 +566,11 @@ python brain2rl/cli.py classification --batch-size 16
 python brain2rl/cli.py rl-training --batch-size 32 --update-frequency 4
 ```
 
-## Contributing
-
-### Development Setup
 
 ```bash
 # Clone repository
 git clone https://github.com/your-org/brain2rl.git
 cd brain2rl
-
-# Create development environment
-python -m venv dev_env
-source dev_env/bin/activate
-
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Install pre-commit hooks
-pre-commit install
-```
-
-### Code Style
-
-- Follow PEP 8 style guidelines
-- Use type hints for function parameters and returns
-- Add docstrings for all public functions and classes
-- Write unit tests for new functionality
-
-### Submitting Changes
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make your changes and add tests
-4. Ensure all tests pass: `python -m pytest`
-5. Submit a pull request
-
-### Reporting Issues
-
-Please report bugs and feature requests using GitHub Issues:
-- Include Python version and operating system
-- Provide minimal code example to reproduce the issue
-- Include relevant log files and error messages
 
 ## License
 

@@ -1,0 +1,35 @@
+
+
+Merge branch 'main' of https://github.com/Daechul-Jung/brain2rl
+# Please enter a commit message to explain why this merge is necessary,
+# especially if it merges an updated upstream into a topic branch.
+#
+# Lines starting with '#' will be ignored, and an empty message aborts
+# the commit.
+#
+# It looks like you may be committing a merge.
+# If this is not correct, please run
+#	git update-ref -d MERGE_HEAD
+# and try again.
+
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# On branch main
+# Your branch and 'origin/main' have diverged,
+# and have 1 and 1 different commits each, respectively.
+#
+# All conflicts fixed but you are still merging.
+#
+# Changes to be committed:
+#	new file:   core/__pycache__/__init__.cpython-311.pyc
+#	new file:   core/__pycache__/classification_pipeline.cpython-311.pyc
+#	new file:   core/__pycache__/main_pipeline.cpython-311.pyc
+#	modified:   models/classification/__pycache__/action_classifier.cpython-311.pyc
+#	modified:   simulation/__init__.py
+#	new file:   simulation/__pycache__/__init__.cpython-38.pyc
+#	new file:   simulation/__pycache__/kuka_rl_agent.cpython-38.pyc
+#	modified:   simulation/kuka_rl_agent.py
+#	modified:   utils/__pycache__/data_utils.cpython-311.pyc
+#

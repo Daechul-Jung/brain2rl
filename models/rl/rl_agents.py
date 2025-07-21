@@ -1,369 +1,351 @@
+"""
+KUKA Reinforcement Learning Agent
+Implements various RL algorithms for KUKA iiwa arm control
+"""
+
+import os
+import sys
+import time
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
-from collections import deque
-import random
-from typing import List, Tuple, Dict, Union
-import gym
+import torch.nn.functional as F
+from collections import deque, namedtuple
+from typing import Dict, List, Any, Optional, Tuple
+import pickle
+import json
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-class DQNAgent:
-    """Deep Q-Network Agent"""
-    def __init__(
-        self,
-        state_size: int,
-        action_size: int,
-        learning_rate: float = 0.001,
-        gamma: float = 0.99,
-        epsilon: float = 1.0,
-        epsilon_min: float = 0.01,
-        epsilon_decay: float = 0.995,
-        memory_size: int = 10000,
-        batch_size: int = 64,
-        target_update: int = 10
-    ):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.memory = deque(maxlen=memory_size)
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
-        self.learning_rate = learning_rate
-        self.batch_size = batch_size
-        self.target_update = target_update
-        self.update_counter = 0
-        
-        # Create Q-Network and Target Network
-        self.q_network = self._build_network()
-        self.target_network = self._build_network()
-        self.target_network.load_state_dict(self.q_network.state_dict())
-        
-        self.optimizer = optim.Adam(self.q_network.parameters(), lr=learning_rate)
-        self.criterion = nn.MSELoss()
-    
-    def _build_network(self) -> nn.Module:
-        """Build the neural network for Q-learning"""
-        return nn.Sequential(
-            nn.Linear(self.state_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, self.action_size)
-        )
-    
-    def remember(self, state: np.ndarray, action: int, reward: float, next_state: np.ndarray, done: bool):
-        """Store experience in memory"""
-        self.memory.append((state, action, reward, next_state, done))
-    
-    def act(self, state: np.ndarray) -> int:
-        """Choose action using epsilon-greedy policy"""
-        if random.random() < self.epsilon:
-            return random.randrange(self.action_size)
-        
-        with torch.no_grad():
-            state = torch.FloatTensor(state).unsqueeze(0)
-            q_values = self.q_network(state)
-            return q_values.argmax().item()
-    
-    def replay(self) -> float:
-        """Train on a batch of experiences"""
-        if len(self.memory) < self.batch_size:
-            return 0.0
-        
-        # Sample batch
-        batch = random.sample(self.memory, self.batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
-        
-        # Convert to tensors
-        states = torch.FloatTensor(states)
-        actions = torch.LongTensor(actions)
-        rewards = torch.FloatTensor(rewards)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(dones)
-        
-        # Get current Q values
-        current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
-        
-        # Get next Q values from target network
-        with torch.no_grad():
-            next_q_values = self.target_network(next_states).max(1)[0]
-            target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
-        
-        # Compute loss and update
-        loss = self.criterion(current_q_values.squeeze(), target_q_values)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        
-        # Update target network
-        self.update_counter += 1
-        if self.update_counter % self.target_update == 0:
-            self.target_network.load_state_dict(self.q_network.state_dict())
-        
-        # Decay epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-        
-        return loss.item()
+# Try to import RL libraries
+# try:
+#     import stable_baselines3 as sb3
+#     from stable_baselines3 import PPO, SAC, DDPG
+#     from stable_baselines3.common.vec_env import DummyVecEnv
+#     from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
+#     SB3_AVAILABLE = True
+# except ImportError:
+#     print("WARNING: stable-baselines3 not available. Using custom implementation.")
+#     SB3_AVAILABLE = False
 
-class PPOAgent:
-    """Proximal Policy Optimization Agent"""
-    def __init__(self,
-        state_size: int,
-        action_size: int,
-        learning_rate: float = 0.0003,
-        gamma: float = 0.99,
-        gae_lambda: float = 0.95,
-        clip_ratio: float = 0.2,
-        value_coef: float = 0.5,
-        entropy_coef: float = 0.01,
-        max_grad_norm: float = 0.5,
-        update_epochs: int = 10,
-        batch_size: int = 64
-    ):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.gamma = gamma
-        self.gae_lambda = gae_lambda
-        self.clip_ratio = clip_ratio
-        self.value_coef = value_coef
-        self.entropy_coef = entropy_coef
-        self.max_grad_norm = max_grad_norm
-        self.update_epochs = update_epochs
-        self.batch_size = batch_size
-        
-        # Create actor-critic network
-        self.actor_critic = self._build_network()
-        self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=learning_rate)
+from simulation.kuka_gym_environment import KUKAGymEnvironment
+
+class KUKANeuralNetwork(nn.Module):
+    """
+    Neural network for KUKA arm control
+    Later I should fix this part more
+    """
     
-    def _build_network(self) -> nn.Module:
-        """Build the actor-critic network"""
-        class ActorCritic(nn.Module):
-            def __init__(self, state_size, action_size):
-                super().__init__()
-                self.shared = nn.Sequential(
-                    nn.Linear(state_size, 128),
-                    nn.ReLU(),
-                    nn.Linear(128, 128),
-                    nn.ReLU()
-                )
-                
-                self.actor = nn.Sequential(
-                    nn.Linear(128, action_size),
-                    nn.Softmax(dim=-1)
-                )
-                
-                self.critic = nn.Linear(128, 1)
-            
-            def forward(self, x):
-                shared_features = self.shared(x)
-                return self.actor(shared_features), self.critic(shared_features)
+    def __init__(self, input_dim: int, output_dim: int, hidden_dims: List[int] = [256, 256, 128]):
+        super(KUKANeuralNetwork, self).__init__()
         
-        return ActorCritic(self.state_size, self.action_size)
+        layers = []
+        prev_dim = input_dim
+        
+        # Hidden layers
+        for hidden_dim in hidden_dims:
+            layers.extend([
+                nn.Linear(prev_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(0.1)
+            ])
+            prev_dim = hidden_dim
+        
+        # Output layer
+        layers.append(nn.Linear(prev_dim, output_dim))
+        
+        self.network = nn.Sequential(*layers)
+        
+        # Initialize weights
+        self.apply(self._init_weights)
     
-    def act(self, state: np.ndarray) -> Tuple[int, float, float]:
-        """Choose action and get value estimate"""
+    def _init_weights(self, module):
+        """Initialize network weights"""
+        if isinstance(module, nn.Linear):
+            torch.nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+    
+    def forward(self, x):
+        return self.network(x)
+
+class KUKAPPOAgent:
+    """PPO Agent for KUKA arm control"""
+    
+    def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
+        self.observation_dim = observation_dim
+        self.action_dim = action_dim
+        self.device = torch.device(device)
+        
+        # Hyperparameters
+        self.lr = 3e-4
+        self.gamma = 0.99
+        self.eps_clip = 0.2
+        self.K_epochs = 4
+        self.value_coef = 0.5
+        self.entropy_coef = 0.01
+        
+        # Networks
+        self.policy_net = KUKANeuralNetwork(observation_dim, action_dim * 2).to(self.device)  # mean + std
+        self.value_net = KUKANeuralNetwork(observation_dim, 1).to(self.device)
+        
+        # Optimizers
+        self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=self.lr)
+        self.value_optimizer = optim.Adam(self.value_net.parameters(), lr=self.lr)
+        
+        # Memory
+        self.memory = []
+        
+        print(f"PPO Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
+    
+    def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
+        """Get action from policy"""
+        obs_tensor = torch.FloatTensor(observation).unsqueeze(0).to(self.device)
+        
         with torch.no_grad():
-            state = torch.FloatTensor(state).unsqueeze(0)
-            action_probs, value = self.actor_critic(state)
+            policy_output = self.policy_net(obs_tensor)
+            mean = policy_output[:, :self.action_dim]
+            log_std = policy_output[:, self.action_dim:]
+            std = torch.exp(torch.clamp(log_std, -20, 2))
             
-            # Sample action
-            action = torch.multinomial(action_probs, 1).item()
-            log_prob = torch.log(action_probs[0, action])
+            if training:
+                # Sample from distribution
+                dist = torch.distributions.Normal(mean, std)
+                action = dist.sample()
+                log_prob = dist.log_prob(action).sum(dim=-1)
+            else:
+                # Use mean for evaluation
+                action = mean
+                log_prob = torch.zeros(1)
             
-            return action, log_prob.item(), value.item()
+            action = torch.tanh(action)  # Bound action to [-1, 1]
+        
+        action_info = {
+            'log_prob': log_prob.item(),
+            'mean': mean.squeeze().cpu().numpy(),
+            'std': std.squeeze().cpu().numpy()
+        }
+        
+        return action.squeeze().cpu().numpy(), action_info
     
-    def compute_gae(
-        self,
-        rewards: List[float],
-        values: List[float],
-        dones: List[bool]
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute Generalized Advantage Estimation"""
-        advantages = []
-        returns = []
-        running_return = 0
-        previous_value = 0
-        running_advantage = 0
-        
-        for r, v, d in zip(reversed(rewards), reversed(values), reversed(dones)):
-            running_return = r + self.gamma * running_return * (1 - d)
-            returns.insert(0, running_return)
-            
-            td_error = r + self.gamma * previous_value * (1 - d) - v
-            running_advantage = td_error + self.gamma * self.gae_lambda * running_advantage * (1 - d)
-            advantages.insert(0, running_advantage)
-            
-            previous_value = v
-        
-        return np.array(advantages), np.array(returns)
+    def store_transition(self, obs, action, reward, next_obs, done, action_info):
+        """Store transition in memory"""
+        self.memory.append({
+            'obs': obs,
+            'action': action,
+            'reward': reward,
+            'next_obs': next_obs,
+            'done': done,
+            'log_prob': action_info['log_prob']
+        })
     
-    def update(
-        self,
-        states: np.ndarray,
-        actions: np.ndarray,
-        old_log_probs: np.ndarray,
-        advantages: np.ndarray,
-        returns: np.ndarray
-    ) -> Dict[str, float]:
-        """Update policy and value function"""
-        states = torch.FloatTensor(states)
-        actions = torch.LongTensor(actions)
-        old_log_probs = torch.FloatTensor(old_log_probs)
-        advantages = torch.FloatTensor(advantages)
-        returns = torch.FloatTensor(returns)
+    def update(self):
+        """Update policy and value networks"""
+        if len(self.memory) == 0:
+            return {}
         
-        # Normalize advantages
+        # Convert memory to tensors
+        observations = torch.FloatTensor([m['obs'] for m in self.memory]).to(self.device)
+        actions = torch.FloatTensor([m['action'] for m in self.memory]).to(self.device)
+        rewards = torch.FloatTensor([m['reward'] for m in self.memory]).to(self.device)
+        dones = torch.BoolTensor([m['done'] for m in self.memory]).to(self.device)
+        old_log_probs = torch.FloatTensor([m['log_prob'] for m in self.memory]).to(self.device)
+        
+        # Calculate returns and advantages
+        returns = self._calculate_returns(rewards, dones)
+        values = self.value_net(observations).squeeze()
+        advantages = returns - values
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
-        total_loss = 0
+        # Update for K epochs
+        total_policy_loss = 0
         total_value_loss = 0
-        total_entropy = 0
         
-        for _ in range(self.update_epochs):
-            # Create mini-batches
-            indices = np.random.permutation(len(states))
-            for start in range(0, len(states), self.batch_size):
-                idx = indices[start:start + self.batch_size]
-                
-                # Get current policy and value
-                action_probs, values = self.actor_critic(states[idx])
-                new_log_probs = torch.log(action_probs.gather(1, actions[idx].unsqueeze(1))).squeeze()
-                
-                ratio = torch.exp(new_log_probs - old_log_probs[idx])
-                surr1 = ratio * advantages[idx]
-                surr2 = torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio) * advantages[idx]
-                actor_loss = -torch.min(surr1, surr2).mean()
-                
-                value_loss = self.value_coef * self.criterion(values.squeeze(), returns[idx])
-                
-                entropy = -torch.sum(action_probs * torch.log(action_probs + 1e-10), dim=1).mean()
-                
-                loss = actor_loss + value_loss - self.entropy_coef * entropy
-                
-                self.optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
-                self.optimizer.step()
-                
-                total_loss += loss.item()
-                total_value_loss += value_loss.item()
-                total_entropy += entropy.item()
+        for _ in range(self.K_epochs):
+            # Policy update
+            policy_output = self.policy_net(observations)
+            mean = policy_output[:, :self.action_dim]
+            log_std = policy_output[:, self.action_dim:]
+            std = torch.exp(torch.clamp(log_std, -20, 2))
+            
+            dist = torch.distributions.Normal(mean, std)
+            new_log_probs = dist.log_prob(actions).sum(dim=-1)
+            entropy = dist.entropy().sum(dim=-1)
+            
+            ratio = torch.exp(new_log_probs - old_log_probs)
+            surr1 = ratio * advantages
+            surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
+            
+            policy_loss = -torch.min(surr1, surr2).mean() - self.entropy_coef * entropy.mean()
+            
+            self.policy_optimizer.zero_grad()
+            policy_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 0.5)
+            self.policy_optimizer.step()
+            
+            total_policy_loss += policy_loss.item()
+            
+            # Value update
+            new_values = self.value_net(observations).squeeze()
+            value_loss = F.mse_loss(new_values, returns)
+            
+            self.value_optimizer.zero_grad()
+            value_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), 0.5)
+            self.value_optimizer.step()
+            
+            total_value_loss += value_loss.item()
+        
+        # Clear memory
+        self.memory.clear()
         
         return {
-            'loss': total_loss / self.update_epochs,
-            'value_loss': total_value_loss / self.update_epochs,
-            'entropy': total_entropy / self.update_epochs
+            'policy_loss': total_policy_loss / self.K_epochs,
+            'value_loss': total_value_loss / self.K_epochs,
+            'mean_return': returns.mean().item()
         }
+    
+    def _calculate_returns(self, rewards, dones):
+        """Calculate discounted returns"""
+        returns = torch.zeros_like(rewards)
+        running_return = 0
+        
+        for t in reversed(range(len(rewards))):
+            if dones[t]:
+                running_return = 0
+            running_return = rewards[t] + self.gamma * running_return
+            returns[t] = running_return
+        
+        return returns
+    
+    def save(self, filepath: str):
+        """Save agent"""
+        torch.save({
+            'policy_net': self.policy_net.state_dict(),
+            'value_net': self.value_net.state_dict(),
+            'policy_optimizer': self.policy_optimizer.state_dict(),
+            'value_optimizer': self.value_optimizer.state_dict()
+        }, filepath)
+        print(f"Agent saved to {filepath}")
+    
+    def load(self, filepath: str):
+        """Load agent"""
+        checkpoint = torch.load(filepath, map_location=self.device)
+        self.policy_net.load_state_dict(checkpoint['policy_net'])
+        self.value_net.load_state_dict(checkpoint['value_net'])
+        self.policy_optimizer.load_state_dict(checkpoint['policy_optimizer'])
+        self.value_optimizer.load_state_dict(checkpoint['value_optimizer'])
+        print(f"Agent loaded from {filepath}")
 
-class SACAgent:
-    """Soft Actor-Critic Agent"""
-    def __init__(
-        self,
-        state_size: int,
-        action_size: int,
-        learning_rate: float = 0.0003,
-        gamma: float = 0.99,
-        tau: float = 0.005,
-        alpha: float = 0.2,
-        memory_size: int = 100000,
-        batch_size: int = 256
-    ):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.memory = deque(maxlen=memory_size)
-        self.gamma = gamma
-        self.tau = tau
-        self.alpha = alpha
-        self.batch_size = batch_size
+class KUKASACAgent:
+    """SAC Agent for KUKA arm control"""
+    
+    def __init__(self, observation_dim: int, action_dim: int, device: str = "cpu"):
+        self.observation_dim = observation_dim
+        self.action_dim = action_dim
+        self.device = torch.device(device)
         
-        # Create networks
-        self.actor = self._build_actor()
-        self.critic1 = self._build_critic()
-        self.critic2 = self._build_critic()
-        self.target_critic1 = self._build_critic()
-        self.target_critic2 = self._build_critic()
+        # Hyperparameters
+        self.lr = 3e-4
+        self.gamma = 0.99
+        self.tau = 0.005
+        self.alpha = 0.2  # Entropy regularization
+        self.buffer_size = 100000
+        self.batch_size = 256
         
-        # Initialize target networks
+        # Networks
+        self.actor = KUKANeuralNetwork(observation_dim, action_dim * 2).to(self.device)
+        self.critic1 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        self.critic2 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        self.target_critic1 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        self.target_critic2 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        
+        # Copy weights to target networks
         self.target_critic1.load_state_dict(self.critic1.state_dict())
         self.target_critic2.load_state_dict(self.critic2.state_dict())
         
-        # Create optimizers
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=learning_rate)
-        self.critic1_optimizer = optim.Adam(self.critic1.parameters(), lr=learning_rate)
-        self.critic2_optimizer = optim.Adam(self.critic2.parameters(), lr=learning_rate)
+        # Optimizers
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=self.lr)
+        self.critic1_optimizer = optim.Adam(self.critic1.parameters(), lr=self.lr)
+        self.critic2_optimizer = optim.Adam(self.critic2.parameters(), lr=self.lr)
+        
+        # Replay buffer
+        self.replay_buffer = deque(maxlen=self.buffer_size)
+        
+        print(f"SAC Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
     
-    def _build_actor(self) -> nn.Module:
-        """Build the actor network"""
-        return nn.Sequential(
-            nn.Linear(self.state_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, self.action_size * 2)  # Mean and log_std for each action
-        )
-    
-    def _build_critic(self) -> nn.Module:
-        """Build the critic network"""
-        return nn.Sequential(
-            nn.Linear(self.state_size + self.action_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1)
-        )
-    
-    def act(self, state: np.ndarray, evaluate: bool = False) -> np.ndarray:
-        """Choose action using current policy"""
+    def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
+        """Get action from policy"""
+        obs_tensor = torch.FloatTensor(observation).unsqueeze(0).to(self.device)
+        
         with torch.no_grad():
-            state = torch.FloatTensor(state).unsqueeze(0)
-            mean, log_std = self.actor(state).chunk(2, dim=-1)
+            actor_output = self.actor(obs_tensor)
+            mean = actor_output[:, :self.action_dim]
+            log_std = actor_output[:, self.action_dim:]
+            log_std = torch.clamp(log_std, -20, 2)
             
-            if evaluate:
-                return torch.tanh(mean).numpy()
-            
-            std = log_std.exp()
-            normal = torch.distributions.Normal(mean, std)
-            x_t = normal.rsample()
-            action = torch.tanh(x_t)
-            
-            return action.numpy()
+            if training:
+                std = torch.exp(log_std)
+                dist = torch.distributions.Normal(mean, std)
+                action = dist.rsample()  # Reparameterization trick
+                action = torch.tanh(action)
+            else:
+                action = torch.tanh(mean)
+        
+        action_info = {
+            'mean': mean.squeeze().cpu().numpy(),
+            'std': torch.exp(log_std).squeeze().cpu().numpy()
+        }
+        
+        return action.squeeze().cpu().numpy(), action_info
     
-    def remember(self, state: np.ndarray, action: np.ndarray, reward: float, next_state: np.ndarray, done: bool):
-        """Store experience in memory"""
-        self.memory.append((state, action, reward, next_state, done))
+    def store_transition(self, obs, action, reward, next_obs, done, action_info):
+        """Store transition in replay buffer"""
+        self.replay_buffer.append({
+            'obs': obs,
+            'action': action,
+            'reward': reward,
+            'next_obs': next_obs,
+            'done': done
+        })
     
-    def update(self) -> Dict[str, float]:
-        """Update networks"""
-        if len(self.memory) < self.batch_size:
-            return {'actor_loss': 0, 'critic_loss': 0}
+    def update(self):
+        """Update SAC networks"""
+        if len(self.replay_buffer) < self.batch_size:
+            return {}
         
         # Sample batch
-        batch = random.sample(self.memory, self.batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
+        batch = np.random.choice(self.replay_buffer, self.batch_size, replace=False)
         
-        # Convert to tensors
-        states = torch.FloatTensor(states)
-        actions = torch.FloatTensor(actions)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(dones).unsqueeze(1)
+        obs = torch.FloatTensor([t['obs'] for t in batch]).to(self.device)
+        actions = torch.FloatTensor([t['action'] for t in batch]).to(self.device)
+        rewards = torch.FloatTensor([t['reward'] for t in batch]).to(self.device)
+        next_obs = torch.FloatTensor([t['next_obs'] for t in batch]).to(self.device)
+        dones = torch.BoolTensor([t['done'] for t in batch]).to(self.device)
         
         # Update critics
         with torch.no_grad():
-            next_actions = self.act(next_states.numpy())
-            next_actions = torch.FloatTensor(next_actions)
-            target_q1 = self.target_critic1(torch.cat([next_states, next_actions], dim=1))
-            target_q2 = self.target_critic2(torch.cat([next_states, next_actions], dim=1))
-            target_q = torch.min(target_q1, target_q2)
-            target_q = rewards + (1 - dones) * self.gamma * target_q
+            next_action_output = self.actor(next_obs)
+            next_mean = next_action_output[:, :self.action_dim]
+            next_log_std = torch.clamp(next_action_output[:, self.action_dim:], -20, 2)
+            next_std = torch.exp(next_log_std)
+            
+            next_dist = torch.distributions.Normal(next_mean, next_std)
+            next_actions = next_dist.rsample()
+            next_actions = torch.tanh(next_actions)
+            next_log_probs = next_dist.log_prob(next_actions).sum(dim=-1, keepdim=True)
+            
+            next_q1 = self.target_critic1(torch.cat([next_obs, next_actions], dim=1))
+            next_q2 = self.target_critic2(torch.cat([next_obs, next_actions], dim=1))
+            next_q = torch.min(next_q1, next_q2) - self.alpha * next_log_probs
+            
+            target_q = rewards.unsqueeze(1) + self.gamma * (1 - dones.unsqueeze(1).float()) * next_q
         
-        current_q1 = self.critic1(torch.cat([states, actions], dim=1))
-        current_q2 = self.critic2(torch.cat([states, actions], dim=1))
+        current_q1 = self.critic1(torch.cat([obs, actions], dim=1))
+        current_q2 = self.critic2(torch.cat([obs, actions], dim=1))
         
-        critic1_loss = nn.MSELoss()(current_q1, target_q)
-        critic2_loss = nn.MSELoss()(current_q2, target_q)
+        critic1_loss = F.mse_loss(current_q1, target_q)
+        critic2_loss = F.mse_loss(current_q2, target_q)
         
         self.critic1_optimizer.zero_grad()
         critic1_loss.backward()
@@ -374,103 +356,257 @@ class SACAgent:
         self.critic2_optimizer.step()
         
         # Update actor
-        new_actions = self.act(states.numpy())
-        new_actions = torch.FloatTensor(new_actions)
-        q1 = self.critic1(torch.cat([states, new_actions], dim=1))
-        q2 = self.critic2(torch.cat([states, new_actions], dim=1))
-        q = torch.min(q1, q2)
+        actor_output = self.actor(obs)
+        actor_mean = actor_output[:, :self.action_dim]
+        actor_log_std = torch.clamp(actor_output[:, self.action_dim:], -20, 2)
+        actor_std = torch.exp(actor_log_std)
         
-        actor_loss = -q.mean()
+        actor_dist = torch.distributions.Normal(actor_mean, actor_std)
+        actor_actions = actor_dist.rsample()
+        actor_actions = torch.tanh(actor_actions)
+        actor_log_probs = actor_dist.log_prob(actor_actions).sum(dim=-1, keepdim=True)
+        
+        q1_new = self.critic1(torch.cat([obs, actor_actions], dim=1))
+        q2_new = self.critic2(torch.cat([obs, actor_actions], dim=1))
+        q_new = torch.min(q1_new, q2_new)
+        
+        actor_loss = (self.alpha * actor_log_probs - q_new).mean()
         
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
         
-        # Update target networks
-        self._update_target_network(self.target_critic1, self.critic1)
-        self._update_target_network(self.target_critic2, self.critic2)
+        # Soft update target networks
+        self._soft_update(self.target_critic1, self.critic1)
+        self._soft_update(self.target_critic2, self.critic2)
         
         return {
             'actor_loss': actor_loss.item(),
-            'critic_loss': (critic1_loss.item() + critic2_loss.item()) / 2
+            'critic1_loss': critic1_loss.item(),
+            'critic2_loss': critic2_loss.item(),
+            'q_value': current_q1.mean().item()
         }
     
-    def _update_target_network(self, target: nn.Module, source: nn.Module):
+    def _soft_update(self, target, source):
         """Soft update target network"""
-        for target_param, param in zip(target.parameters(), source.parameters()):
-            target_param.data.copy_(
-                target_param.data * (1.0 - self.tau) + param.data * self.tau
-            )
-
-def train_agent(
-    env: gym.Env,
-    agent: Union[DQNAgent, PPOAgent, SACAgent],
-    num_episodes: int,
-    max_steps: int = 1000,
-    render: bool = False
-) -> List[float]:
-    """Train an RL agent"""
-    episode_rewards = []
+        for target_param, source_param in zip(target.parameters(), source.parameters()):
+            target_param.data.copy_(self.tau * source_param.data + (1 - self.tau) * target_param.data)
     
-    for episode in range(num_episodes):
-        state = env.reset()
+    def save(self, filepath: str):
+        """Save agent"""
+        torch.save({
+            'actor': self.actor.state_dict(),
+            'critic1': self.critic1.state_dict(),
+            'critic2': self.critic2.state_dict(),
+            'target_critic1': self.target_critic1.state_dict(),
+            'target_critic2': self.target_critic2.state_dict(),
+            'actor_optimizer': self.actor_optimizer.state_dict(),
+            'critic1_optimizer': self.critic1_optimizer.state_dict(),
+            'critic2_optimizer': self.critic2_optimizer.state_dict()
+        }, filepath)
+        print(f"SAC Agent saved to {filepath}")
+    
+    def load(self, filepath: str):
+        """Load agent"""
+        checkpoint = torch.load(filepath, map_location=self.device)
+        self.actor.load_state_dict(checkpoint['actor'])
+        self.critic1.load_state_dict(checkpoint['critic1'])
+        self.critic2.load_state_dict(checkpoint['critic2'])
+        self.target_critic1.load_state_dict(checkpoint['target_critic1'])
+        self.target_critic2.load_state_dict(checkpoint['target_critic2'])
+        self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
+        self.critic1_optimizer.load_state_dict(checkpoint['critic1_optimizer'])
+        self.critic2_optimizer.load_state_dict(checkpoint['critic2_optimizer'])
+        print(f"SAC Agent loaded from {filepath}")
+
+class KUKARLAgent:
+    """Unified RL Agent interface for KUKA arm control"""
+    
+    def __init__(self, algorithm: str = "ppo", observation_dim: int = 30, action_dim: int = 7, 
+                 device: str = "auto", **kwargs):
+        """
+        Initialize KUKA RL Agent
+        
+        Args:
+            algorithm: RL algorithm ('ppo', 'sac', 'thinking')
+            observation_dim: Observation space dimension
+            action_dim: Action space dimension
+            device: Computing device ('cuda')
+        """
+        if device == "cuda":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        self.device = device
+        self.algorithm = algorithm.lower()
+        self.observation_dim = observation_dim
+        self.action_dim = action_dim
+        
+        # Training statistics
+        self.training_stats = {
+            'episodes': 0,
+            'total_steps': 0,
+            'best_reward': -float('inf'),
+            'recent_rewards': deque(maxlen=100)
+        }
+        
+        # Initialize agent based on algorithm
+        if self.algorithm == "ppo":
+            self.agent = KUKAPPOAgent(observation_dim, action_dim, device)
+        elif self.algorithm == "sac":
+            self.agent = KUKASACAgent(observation_dim, action_dim, device)
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}")
+        
+        print(f"KUKA RL Agent initialized - Algorithm: {algorithm}, Device: {device}")
+    
+    def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
+        """Get action from agent"""
+        return self.agent.get_action(observation, training)
+    
+    def store_transition(self, obs, action, reward, next_obs, done, action_info):
+        """Store transition"""
+        self.agent.store_transition(obs, action, reward, next_obs, done, action_info)
+    
+    def update(self) -> Dict:
+        """Update agent"""
+        return self.agent.update()
+    
+    def train_episode(self, env: KUKAGymEnvironment) -> Dict:
+        """Train agent for one episode"""
+        obs, info = env.reset()
         episode_reward = 0
+        episode_steps = 0
+        done = False
         
-        for step in range(max_steps):
-            if render:
-                env.render()
+        while not done:
+            # Get action
+            action, action_info = self.get_action(obs, training=True)
             
-            if isinstance(agent, DQNAgent):
-                action = agent.act(state)
-                next_state, reward, done, _ = env.step(action)
-                agent.remember(state, action, reward, next_state, done)
-                loss = agent.replay()
+            # Execute action
+            next_obs, reward, terminated, truncated, step_info = env.step(action)
+            done = terminated or truncated
             
-            elif isinstance(agent, PPOAgent):
-                action, log_prob, value = agent.act(state)
-                next_state, reward, done, _ = env.step(action)
-                # Store transition for PPO update
-                # (You'll need to implement a buffer for PPO)
+            # Store transition
+            self.store_transition(obs, action, reward, next_obs, done, action_info)
             
-            elif isinstance(agent, SACAgent):
-                action = agent.act(state)
-                next_state, reward, done, _ = env.step(action)
-                agent.remember(state, action, reward, next_state, done)
-                loss = agent.update()
-            
+            obs = next_obs
             episode_reward += reward
-            state = next_state
-            
-            if done:
-                break
+            episode_steps += 1
         
-        episode_rewards.append(episode_reward)
-        print(f"Episode {episode + 1}/{num_episodes}, Reward: {episode_reward:.2f}")
+        # Update agent
+        update_info = self.update()
+        
+        # Update statistics
+        self.training_stats['episodes'] += 1
+        self.training_stats['total_steps'] += episode_steps
+        self.training_stats['recent_rewards'].append(episode_reward)
+        if episode_reward > self.training_stats['best_reward']:
+            self.training_stats['best_reward'] = episode_reward
+        
+        episode_info = {
+            'episode_reward': episode_reward,
+            'episode_steps': episode_steps,
+            'success': step_info.get('episode_success', False),
+            'task_completed': step_info.get('task_completed', False),
+            **update_info
+        }
+        
+        return episode_info
     
-    return episode_rewards
+    def evaluate(self, env: KUKAGymEnvironment, num_episodes: int = 10) -> Dict:
+        """Evaluate agent"""
+        eval_rewards = []
+        eval_successes = []
+        
+        for _ in range(num_episodes):
+            obs, _ = env.reset()
+            episode_reward = 0
+            done = False
+            
+            while not done:
+                action, _ = self.get_action(obs, training=False)
+                obs, reward, terminated, truncated, info = env.step(action)
+                episode_reward += reward
+                done = terminated or truncated
+            
+            eval_rewards.append(episode_reward)
+            eval_successes.append(info.get('episode_success', False))
+        
+        return {
+            'mean_reward': np.mean(eval_rewards),
+            'std_reward': np.std(eval_rewards),
+            'success_rate': np.mean(eval_successes),
+            'episodes': num_episodes
+        }
+    
+    def save(self, filepath: str):
+        """Save agent and training statistics"""
+        # Save agent
+        agent_path = filepath.replace('.pkl', '_agent.pth')
+        self.agent.save(agent_path)
+        
+        # Save training statistics
+        with open(filepath, 'wb') as f:
+            pickle.dump(self.training_stats, f)
+        
+        print(f"Full agent saved: {filepath}")
+    
+    def load(self, filepath: str):
+        """Load agent and training statistics"""
+        # Load agent
+        agent_path = filepath.replace('.pkl', '_agent.pth')
+        if os.path.exists(agent_path):
+            self.agent.load(agent_path)
+        
+        # Load training statistics
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                self.training_stats = pickle.load(f)
+        
+        print(f"Full agent loaded: {filepath}")
 
-# Example usage
-if __name__ == '__main__':
-    from models.rl.sensor_gym_env import SensorGymEnv
-    from models.pipelines.sensor_data_pipeline import SensorDataProcessor
+def main():
+    """Test KUKA RL Agent"""
+    # Test environment
+    env = KUKAGymEnvironment(task_type="reach")
     
-    # Initialize environment
-    processor = SensorDataProcessor()
-    env = SensorGymEnv(processor)
-    
-    # Create and train DQN agent
-    state_size = env.observation_space.shape[0]
-    action_size = env.action_space.n
-    
-    dqn_agent = DQNAgent(state_size, action_size)
-    dqn_rewards = train_agent(env, dqn_agent, num_episodes=100)
-    
-    # Create and train PPO agent
-    ppo_agent = PPOAgent(state_size, action_size)
-    ppo_rewards = train_agent(env, ppo_agent, num_episodes=100)
-    
-    # Create and train SAC agent
-    sac_agent = SACAgent(state_size, action_size)
-    sac_rewards = train_agent(env, sac_agent, num_episodes=100)
-    
-    env.close() 
+    try:
+        obs, _ = env.reset()
+        obs_dim = len(obs)
+        action_dim = 7
+        
+        print(f"Environment: obs_dim={obs_dim}, action_dim={action_dim}")
+        
+        # Test different algorithms
+        algorithms = ["ppo", "sac"]
+        
+        for algo in algorithms:
+            print(f"\n=== Testing {algo.upper()} Agent ===")
+            
+            agent = KUKARLAgent(
+                algorithm=algo,
+                observation_dim=obs_dim,
+                action_dim=action_dim
+            )
+            
+            # Train for a few episodes
+            for episode in range(3):
+                episode_info = agent.train_episode(env)
+                print(f"Episode {episode + 1}: {episode_info}")
+            
+            # Evaluate
+            eval_info = agent.evaluate(env, num_episodes=2)
+            print(f"Evaluation: {eval_info}")
+            
+            # Save/load test
+            save_path = f"/tmp/kuka_{algo}_test.pkl"
+            agent.save(save_path)
+            agent.load(save_path)
+            
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        env.close()
+
+if __name__ == "__main__":
+    main() 

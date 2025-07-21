@@ -11,10 +11,8 @@ import numpy as np
 import threading
 from typing import Dict, List, Any, Optional, Tuple
 
-# Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Gym imports
 try:
     import gymnasium as gym
     from gymnasium import spaces
@@ -22,14 +20,13 @@ try:
     print("Using gymnasium (modern gym)")
 except ImportError:
     try:
-        import gym  # type: ignore
-        from gym import spaces  # type: ignore
+        import gym 
+        from gym import spaces 
         GYM_AVAILABLE = True
         print("Using classic gym")
     except ImportError:
         print("ERROR: Neither gymnasium nor gym found. Please install: pip install gymnasium")
         GYM_AVAILABLE = False
-        # Create mock for development
         class MockEnv:
             def __init__(self): pass
         class MockSpaces:
@@ -38,7 +35,6 @@ except ImportError:
         gym = type('MockGym', (), {'Env': MockEnv})()
         spaces = MockSpaces()
 
-# Setup ROS2 environment
 try:
     from scripts.setup_ros2_environment import setup_ros2_environment
     setup_ros2_environment()
@@ -557,9 +553,9 @@ def main():
         
         try:
             # Check gym compatibility
-            print(f"✓ Action space: {env.action_space}")
-            print(f"✓ Observation space: {env.observation_space}")
-            print(f"✓ Metadata: {env.metadata}")
+            print(f"Action space: {env.action_space}")
+            print(f"Observation space: {env.observation_space}")
+            print(f"Metadata: {env.metadata}")
             
             # Run a few episodes
             for episode in range(2):
@@ -590,7 +586,7 @@ def main():
             env.close()
             time.sleep(1)
     
-    print("\n✅ Gym compatibility test completed!")
+    print("\n Gym compatibility test completed!")
 
 if __name__ == "__main__":
     main() 
