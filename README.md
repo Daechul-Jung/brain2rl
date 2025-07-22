@@ -1,4 +1,4 @@
-# Brain2RL Pipeline
+# Brain2RL Project
 
 A comprehensive pipeline for converting brain signals (EEG, fMRI, etc.) to reinforcement learning control of KUKA robot arms through tokenization and attention mechanisms.
 
@@ -8,8 +8,6 @@ A comprehensive pipeline for converting brain signals (EEG, fMRI, etc.) to reinf
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Pipeline Components](#pipeline-components)
-- [Configuration](#configuration)
-- [Data Formats](#data-formats)
 - [Contributing](#contributing)
 
 ## Overview
@@ -57,53 +55,6 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 - **CUDA**: Optional but recommended for GPU acceleration
 - **ROS2 Humble**: For robot simulation (can be mocked for development)
 - **Gazebo Classic**: For physics simulation
-
-### Step 1: Clone Repository
-
-```bash
-git clone https://github.com/Daechul-Jung/brain2rl.git
-cd brain2rl
-```
-
-### Step 2: Install Python Dependencies
-
-```bash
-# Create virtual environment
-python -m venv brain2rl_env
-source brain2rl_env/bin/activate  # On Windows: brain2rl_env\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Step 3: Install ROS2 Humble 
-
-For full simulation capabilities:
-
-```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install ros-humble-desktop
-
-# Source ROS2
-echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
-source ~/.bashrc
-```
-
-### Step 4: Install Gazebo Classic
-
-```bash
-# Ubuntu/Debian
-sudo apt install gazebo11 gazebo11-dev gazebo11-common
-```
-
-### Step 5: Verify Installation
-
-```bash
-python brain2rl/cli.py generate-data --n-samples 100 --output-path test_data.npz
-python brain2rl/cli.py classification --mode train --data-path test_data.npz --epochs 5
-```
-
 
 
 ## Pipeline Components
@@ -300,141 +251,6 @@ python brain2rl/cli.py simulation \
     --use-ros false
 ```
 
-## Configuration
-
-### Default Configuration
-
-The pipeline uses sensible defaults, but you can customize behavior with JSON configuration files:
-
-```json
-{
-  "data_dir": "data/",
-  "classification": {
-    "model_type": "eeg_cnn",
-    "n_channels": 32,
-    "n_times": 512,
-    "n_classes": 6,
-    "dropout_rate": 0.5,
-    "learning_rate": 0.001,
-    "batch_size": 32,
-    "epochs": 100
-  },
-  "tokenization": {
-    "embedding_dim": 128,
-    "n_tokens": 512,
-    "nhead": 8,
-    "num_encoder_layers": 6,
-    "dropout": 0.1,
-    "max_sequence_length": 1000
-  },
-  "rl_training": {
-    "algorithm": "ppo",
-    "learning_rate": 0.0003,
-    "batch_size": 64,
-    "n_steps": 2048,
-    "n_epochs": 10,
-    "gamma": 0.99,
-    "clip_range": 0.2
-  },
-  "simulation": {
-    "robot_type": "kuka_iiwa",
-    "use_gui": true,
-    "real_time_factor": 1.0,
-    "max_episode_steps": 1000,
-    "control_frequency": 100
-  }
-}
-```
-
-### Custom Configuration
-
-```bash
-# Save custom config
-cp config/default_config.json config/my_config.json
-# Edit my_config.json with your parameters
-
-# Use custom config
-python brain2rl/cli.py full \
-    --data-path data/my_data.npz \
-    --config config/my_config.json \
-    --output-dir results/
-```
-
-## Data Formats
-
-### Input Data Format
-
-The pipeline supports multiple input formats:
-
-#### NPZ Format (Recommended)
-```python
-import numpy as np
-
-# Save data in NPZ format
-np.savez('sensor_data.npz', 
-         data=sensor_array,      # Shape: (n_samples, n_channels, n_timesteps)
-         labels=action_labels)   # Shape: (n_samples,) or (n_samples, n_classes)
-```
-
-#### Supported Formats
-- **NPZ**: NumPy compressed arrays with 'data' and 'labels' keys
-- **NPY**: NumPy arrays (labels will be auto-generated)
-- **CSV**: Comma-separated values (time×channels format)
-- **MAT**: MATLAB files with data variables
-- **H5/HDF5**: HDF5 files with datasets
-
-### Data Specifications
-
-#### EEG/Sensor Data
-- **Shape**: `(n_samples, n_channels, n_timesteps)`
-- **Type**: `float32` or `float64`
-- **Range**: Preprocessed and normalized signals
-- **Channels**: 8-128 channels supported
-- **Sampling Rate**: 125-1000 Hz recommended
-
-#### Action Labels
-- **Shape**: `(n_samples,)` for single labels or `(n_samples, n_classes)` for multi-labels
-- **Type**: `int64` for classification
-- **Classes**: 2-10 action classes supported
-
-### Example Data Preparation
-
-```python
-import numpy as np
-from brain2rl.utils.data_utils import preprocess_sensor_data, save_processed_data
-
-# Load your raw sensor data
-raw_data = np.load('raw_eeg.npy')  # Shape: (time, channels)
-action_labels = np.load('actions.npy')  # Shape: (n_trials,)
-
-# Preprocess data
-processed_data = preprocess_sensor_data(
-    raw_data.T,  # Convert to (channels, time)
-    sampling_rate=250.0,
-    apply_filters=True,
-    normalize=True,
-    remove_artifacts=True
-)
-
-# Create windowed samples
-window_size = 512  # 2 seconds at 250 Hz
-n_samples = len(processed_data) // window_size
-
-windowed_data = np.array([
-    processed_data[:, i*window_size:(i+1)*window_size] 
-    for i in range(n_samples)
-])
-
-# Save in pipeline format
-save_processed_data(
-    windowed_data, 
-    action_labels[:n_samples], 
-    'processed_sensor_data.npz',
-    metadata={'sampling_rate': 250.0, 'window_size': 512}
-)
-```
-
-
 ### Project Structure
 
 ```
@@ -479,20 +295,6 @@ python brain2rl/core/rl_training_pipeline.py
 python brain2rl/core/simulation_pipeline.py
 ```
 
-#### Memory Management
-```bash
-# For large datasets, reduce batch size
-python brain2rl/cli.py classification --batch-size 16
-
-# Use gradient accumulation for effective large batch training
-python brain2rl/cli.py rl-training --batch-size 32 --update-frequency 4
-```
-
-
-```bash
-# Clone repository
-git clone https://github.com/your-org/brain2rl.git
-cd brain2rl
 
 ## License
 
