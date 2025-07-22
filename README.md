@@ -7,14 +7,9 @@ A comprehensive pipeline for converting brain signals (EEG, fMRI, etc.) to reinf
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Installation](#installation)
-- [Quick Start](#quick-start)
 - [Pipeline Components](#pipeline-components)
-- [Usage Examples](#usage-examples)
 - [Configuration](#configuration)
 - [Data Formats](#data-formats)
-- [Expected Results](#expected-results)
-- [Development](#development)
-- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 
 ## Overview
@@ -33,7 +28,7 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌──────────────────┐
 │   Sensor Data   │───▶│  Classification  │───▶│  Tokenization   │───▶│   RL Training    │
-│  (EEG/IMU/etc)  │    │                  │    │ (Transformer +  │    │ (PPO/SAC with    │
+│  (EEG/etc)      │    │                  │    │ (Transformer +  │    │ (PPO/SAC with    │
 │                 │    │                  │    │  Attention)     │    │  Token Guidance) │
 └─────────────────┘    └──────────────────┘    └─────────────────┘    └──────────────────┘
                                                         │                        │
@@ -81,7 +76,7 @@ source brain2rl_env/bin/activate  # On Windows: brain2rl_env\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Step 3: Install ROS2 Humble (Optional)
+### Step 3: Install ROS2 Humble 
 
 For full simulation capabilities:
 
@@ -109,42 +104,7 @@ python brain2rl/cli.py generate-data --n-samples 100 --output-path test_data.npz
 python brain2rl/cli.py classification --mode train --data-path test_data.npz --epochs 5
 ```
 
-## Quick Start
 
-### 1. Generate Synthetic Data
-
-```bash
-# Create synthetic sensor data for testing
-python brain2rl/cli.py generate-data \
-    --n-samples 1000 \
-    --n-channels 32 \
-    --n-timesteps 512 \
-    --n-classes 6 \
-    --output-path data/synthetic_sensor_data.npz
-```
-
-### 2. Run Full Pipeline
-
-```bash
-# Execute complete Brain2RL pipeline
-python brain2rl/cli.py full \
-    --data-path data/synthetic_sensor_data.npz \
-    --output-dir results/ \
-    --device auto
-```
-
-### 3. View Results
-
-```bash
-# Check results directory
-ls results/
-# - full_pipeline_results.pth
-# - pipeline_config.json
-# - classification_results.npz
-# - tokenization_results.npz
-# - rl_training_results.pth
-# - simulation_results.npz
-```
 
 ## Pipeline Components
 
@@ -474,38 +434,6 @@ save_processed_data(
 )
 ```
 
-## Expected Results
-
-### Classification Performance
-- **Accuracy**: 70-95% depending on data quality and task complexity
-- **Training Time**: 10-60 minutes for 100 epochs
-- **Model Size**: 1-10 MB
-
-### Tokenization Quality
-- **Token Diversity**: 200-400 unique tokens generated
-- **Attention Patterns**: Clear temporal correlations
-- **Training Time**: 30-120 minutes for 100 epochs
-
-### RL Training Progress
-- **Convergence**: 500-2000 episodes typically required
-- **Performance Improvement**: 20-80% over baseline agents
-- **Training Time**: 2-8 hours depending on task complexity
-
-### Simulation Results
-- **Success Rate**: 60-90% for reach tasks, 40-70% for manipulation
-- **Reaction Time**: 50-200ms for action selection
-- **Trajectory Quality**: Smooth, human-like movements
-
-### Performance Metrics
-
-| Component | Metric | Expected Range | Notes |
-|-----------|--------|----------------|-------|
-| Classification | Accuracy | 70-95% | Depends on signal quality |
-| Tokenization | Perplexity | 2.5-8.0 | Lower is better |
-| RL Training | Success Rate | 60-90% | Task-dependent |
-| Simulation | Reaction Time | 50-200ms | Real-time capable |
-
-## Development
 
 ### Project Structure
 
@@ -549,12 +477,6 @@ python brain2rl/core/classification_pipeline.py
 python brain2rl/core/tokenization_pipeline.py
 python brain2rl/core/rl_training_pipeline.py
 python brain2rl/core/simulation_pipeline.py
-```
-
-#### GPU Acceleration
-```bash
-# Ensure CUDA is available and properly configured
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
 
 #### Memory Management
