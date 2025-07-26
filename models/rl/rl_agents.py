@@ -208,7 +208,7 @@ class PPOAgent:
             entropy = dist.entropy().sum(dim=-1)
             
             ### importance Sampling ratio
-            ratio = torch.exp(new_log_probs - old_log_probs)
+            ratio = torch.exp(new_log_probs - old_log_probs) ### ratio = new_log_probs / old_log_probs
             surr1 = ratio * advantages
             surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
             
@@ -244,7 +244,9 @@ class PPOAgent:
     def _calculate_returns(self, rewards, dones):
         """
         Calculate discounted returns with discount factor gamma
+        Calculate returns in reverse order
         """
+        
         returns = torch.zeros_like(rewards)
         running_return = 0
         
