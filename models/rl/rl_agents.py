@@ -30,14 +30,21 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from simulation.kuka_gym_environment import KUKAGymEnvironment
 
-class KUKANeuralNetwork(nn.Module):
+class NeuralNetwork(nn.Module):
     """
     Neural network for KUKA arm control
     Later I should fix this part more
     """
     
     def __init__(self, input_dim: int, output_dim: int, hidden_dims: List[int] = [256, 256, 128]):
-        super(KUKANeuralNetwork, self).__init__()
+        """_summary_
+
+        Args:
+            input_dim (int): _description_
+            output_dim (int): _description_
+            hidden_dims (List[int], optional): _description_. Defaults to [256, 256, 128].
+        """
+        super(NeuralNetwork, self).__init__()
         
         layers = []
         prev_dim = input_dim
@@ -69,7 +76,7 @@ class KUKANeuralNetwork(nn.Module):
     def forward(self, x):
         return self.network(x)
 
-class KUKAPPOAgent:
+class PPOAgent:
     """PPO Agent for KUKA arm control"""
     
     def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
@@ -86,8 +93,8 @@ class KUKAPPOAgent:
         self.entropy_coef = 0.01
         
         # Networks
-        self.policy_net = KUKANeuralNetwork(observation_dim, action_dim * 2).to(self.device)  # mean + std
-        self.value_net = KUKANeuralNetwork(observation_dim, 1).to(self.device)
+        self.policy_net = NeuralNetwork(observation_dim, action_dim * 2).to(self.device)  # mean + std
+        self.value_net = NeuralNetwork(observation_dim, 1).to(self.device)
         
         # Optimizers
         self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=self.lr)
@@ -108,13 +115,11 @@ class KUKAPPOAgent:
             log_std = policy_output[:, self.action_dim:]
             std = torch.exp(torch.clamp(log_std, -20, 2))
             
-            if training:
-                # Sample from distribution
+            if training: # When training
                 dist = torch.distributions.Normal(mean, std)
                 action = dist.sample()
                 log_prob = dist.log_prob(action).sum(dim=-1)
-            else:
-                # Use mean for evaluation
+            else: # Inference
                 action = mean
                 log_prob = torch.zeros(1)
             
@@ -237,10 +242,10 @@ class KUKAPPOAgent:
         self.value_optimizer.load_state_dict(checkpoint['value_optimizer'])
         print(f"Agent loaded from {filepath}")
 
-class KUKASACAgent:
+class SACAgent:
     """SAC Agent for KUKA arm control"""
     
-    def __init__(self, observation_dim: int, action_dim: int, device: str = "cpu"):
+    def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
         self.observation_dim = observation_dim
         self.action_dim = action_dim
         self.device = torch.device(device)
@@ -254,11 +259,11 @@ class KUKASACAgent:
         self.batch_size = 256
         
         # Networks
-        self.actor = KUKANeuralNetwork(observation_dim, action_dim * 2).to(self.device)
-        self.critic1 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
-        self.critic2 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
-        self.target_critic1 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
-        self.target_critic2 = KUKANeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        self.actor = NeuralNetwork(observation_dim, action_dim * 2).to(self.device)
+        self.critic1 = NeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        self.critic2 = NeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        self.target_critic1 = NeuralNetwork(observation_dim + action_dim, 1).to(self.device)
+        self.target_critic2 = NeuralNetwork(observation_dim + action_dim, 1).to(self.device)
         
         # Copy weights to target networks
         self.target_critic1.load_state_dict(self.critic1.state_dict())
@@ -423,7 +428,7 @@ class KUKARLAgent:
     """Unified RL Agent interface for KUKA arm control"""
     
     def __init__(self, algorithm: str = "ppo", observation_dim: int = 30, action_dim: int = 7, 
-                 device: str = "auto", **kwargs):
+                 device: str = "cuda", **kwargs):
         """
         Initialize KUKA RL Agent
         
@@ -451,9 +456,11 @@ class KUKARLAgent:
         
         # Initialize agent based on algorithm
         if self.algorithm == "ppo":
-            self.agent = KUKAPPOAgent(observation_dim, action_dim, device)
+            self.agent = PPOAgent(observation_dim, action_dim, device)
         elif self.algorithm == "sac":
-            self.agent = KUKASACAgent(observation_dim, action_dim, device)
+            self.agent = SACAgent(observation_dim, action_dim, device)
+        elif self.algorithm == "thinking":
+            self.agent
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
         
@@ -567,7 +574,6 @@ class KUKARLAgent:
 
 def main():
     """Test KUKA RL Agent"""
-    # Test environment
     env = KUKAGymEnvironment(task_type="reach")
     
     try:
@@ -578,7 +584,7 @@ def main():
         print(f"Environment: obs_dim={obs_dim}, action_dim={action_dim}")
         
         # Test different algorithms
-        algorithms = ["ppo", "sac"]
+        algorithms = ["ppo", "sac", "thinking"]
         
         for algo in algorithms:
             print(f"\n=== Testing {algo.upper()} Agent ===")

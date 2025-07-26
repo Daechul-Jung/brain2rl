@@ -20,7 +20,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Local imports
 from simulation.kuka_gym_environment import KUKAGymEnvironment
-from simulation.kuka_rl_agent import KUKARLAgent
+from models.rl.rl_agents import KUKARLAgent
 
 class KUKATrainingManager:
     """Manages KUKA RL training process"""
