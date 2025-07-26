@@ -92,12 +92,13 @@ class PPOAgent:
         
         # Hyperparameters
         self.lr = 3e-4
-        self.gamma = 0.99
+        self.gamma = 0.99  ## Discount factor
         self.eps_clip = 0.2
         self.K_epochs = 4
-        self.value_coef = 0.5
-        self.entropy_coef = 0.01
+        self.value_coef = 0.5 ## Value function coefficient 
+        self.entropy_coef = 0.01 ## Entropy coefficient 
         
+        ###### Policy Gradient Hyperparameters ######
         # Networks
         self.policy_net = NeuralNetwork(observation_dim, action_dim * 2).to(self.device)  # mean + std
         self.value_net = NeuralNetwork(observation_dim, 1).to(self.device)
@@ -105,30 +106,47 @@ class PPOAgent:
         # Optimizers
         self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=self.lr)
         self.value_optimizer = optim.Adam(self.value_net.parameters(), lr=self.lr)
+        ##############################################
         
         # Memory
+        ## For storing trajectories and actions 
         self.memory = []
         
         print(f"PPO Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
     
     def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
-        """Get action from policy"""
+        """
+        Get action from policy
+        During getting action, we do not take gradient descent
+        """
+        
+        ### Make observations as torch
         obs_tensor = torch.FloatTensor(observation).unsqueeze(0).to(self.device)
         
+        ### Even if training mode, policy net does not take gradient descent for getting action. Do update in update method
         with torch.no_grad():
-            policy_output = self.policy_net(obs_tensor)
+            ## Get Policy output based on observation
+            policy_output = self.policy_net(obs_tensor) 
+            ### Since policy net would return 2 * action dim, 
             mean = policy_output[:, :self.action_dim]
             log_std = policy_output[:, self.action_dim:]
             std = torch.exp(torch.clamp(log_std, -20, 2))
             
             if training: # When training
+                
+                ### Sample action from distribution based on mean and std
                 dist = torch.distributions.Normal(mean, std)
+            
                 action = dist.sample()
+                ### Take log probability of action and take sum over action's last dimension
                 log_prob = dist.log_prob(action).sum(dim=-1)
             else: # Inference
                 action = mean
+                ### Since log prob is not used in inference, we set it to zero
                 log_prob = torch.zeros(1)
             
+            
+            ### For numerical issue, we bound action to [-1,1]
             action = torch.tanh(action)  # Bound action to [-1, 1]
         
         action_info = {
@@ -164,8 +182,12 @@ class PPOAgent:
         
         # Calculate returns and advantages
         returns = self._calculate_returns(rewards, dones)
+        # Calculate values of observations via value network 
         values = self.value_net(observations).squeeze()
+        ## Since advantages are used to normalize returns, we calculate advantages 
+        ## Advantages are returns - values
         advantages = returns - values
+        ## Normalize advantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
         # Update for K epochs
@@ -175,6 +197,8 @@ class PPOAgent:
         for _ in range(self.K_epochs):
             # Policy update
             policy_output = self.policy_net(observations)
+            
+            ## Divide policy output into mean and log std
             mean = policy_output[:, :self.action_dim]
             log_std = policy_output[:, self.action_dim:]
             std = torch.exp(torch.clamp(log_std, -20, 2))
@@ -183,6 +207,7 @@ class PPOAgent:
             new_log_probs = dist.log_prob(actions).sum(dim=-1)
             entropy = dist.entropy().sum(dim=-1)
             
+            ### importance Sampling ratio
             ratio = torch.exp(new_log_probs - old_log_probs)
             surr1 = ratio * advantages
             surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
@@ -217,7 +242,9 @@ class PPOAgent:
         }
     
     def _calculate_returns(self, rewards, dones):
-        """Calculate discounted returns"""
+        """
+        Calculate discounted returns with discount factor gamma
+        """
         returns = torch.zeros_like(rewards)
         running_return = 0
         
