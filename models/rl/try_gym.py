@@ -5,7 +5,7 @@ import sys
 import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'models', 'rl'))
-from rl_agents_prac import PPOAgent, SACAgent, train_agent
+from rl_agents import PPOAgent, SACAgent, train_agent
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")

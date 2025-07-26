@@ -1,20 +1,22 @@
 """
 KUKA Reinforcement Learning Agent
-Implements various RL algorithms for KUKA iiwa arm control
+Implements various RL algorithms
 """
 
 import os
 import sys
 import time
 import numpy as np
+import gym
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from collections import deque, namedtuple
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Union
 import pickle
 import json
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Try to import RL libraries
@@ -27,7 +29,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # except ImportError:
 #     print("WARNING: stable-baselines3 not available. Using custom implementation.")
 #     SB3_AVAILABLE = False
-
+import simulation
 from simulation.kuka_gym_environment import KUKAGymEnvironment
 
 class NeuralNetwork(nn.Module):
@@ -40,9 +42,9 @@ class NeuralNetwork(nn.Module):
         """_summary_
 
         Args:
-            input_dim (int): _description_
-            output_dim (int): _description_
-            hidden_dims (List[int], optional): _description_. Defaults to [256, 256, 128].
+            input_dim (int): input dimension of the network which would be observation space dimension
+            output_dim (int): output dimension of the network which would be action space dimension
+            hidden_dims (List[int], optional): Hidden dimension of neural network. Defaults to [256, 256, 128].
         """
         super(NeuralNetwork, self).__init__()
         
@@ -82,6 +84,10 @@ class PPOAgent:
     def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
         self.observation_dim = observation_dim
         self.action_dim = action_dim
+        if torch.cuda.is_available() and device == "cuda":
+            device = "cuda"
+        else:
+            device  = 'cpu'
         self.device = torch.device(device)
         
         # Hyperparameters
@@ -248,6 +254,10 @@ class SACAgent:
     def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
         self.observation_dim = observation_dim
         self.action_dim = action_dim
+        if torch.cuda.is_available() and device == "cuda":
+            device = "cuda"
+        else:
+            device  = 'cpu'
         self.device = torch.device(device)
         
         # Hyperparameters
@@ -478,7 +488,7 @@ class KUKARLAgent:
         """Update agent"""
         return self.agent.update()
     
-    def train_episode(self, env: KUKAGymEnvironment) -> Dict:
+    def train_episode(self, env) -> Dict:
         """Train agent for one episode"""
         obs, info = env.reset()
         episode_reward = 0
@@ -571,6 +581,46 @@ class KUKARLAgent:
                 self.training_stats = pickle.load(f)
         
         print(f"Full agent loaded: {filepath}")
+
+def train_agent(
+    env: gym.Env,
+    agent: Union[ PPOAgent, SACAgent],
+    num_episodes: int,
+    max_steps: int = 1000,
+    render: bool = False
+) -> List[float]:
+    """Train an RL agent"""
+    episode_rewards = []
+    
+    for episode in range(num_episodes):
+        state = env.reset()
+        episode_reward = 0
+        
+        for step in range(max_steps):
+            if render:
+                env.render()
+
+            if isinstance(agent, PPOAgent):
+                action, log_prob, value = agent.act(state)
+                next_state, reward, done, _ = env.step(action)
+                agent.store_transition(state, action, reward, next_state, done, log_prob)
+            
+            elif isinstance(agent, SACAgent):
+                action = agent.act(state)
+                next_state, reward, done, _ = env.step(action)
+                agent.remember(state, action, reward, next_state, done)
+                loss = agent.update()
+            
+            episode_reward += reward
+            state = next_state
+            
+            if done:
+                break
+        
+        episode_rewards.append(episode_reward)
+        print(f"Episode {episode + 1}/{num_episodes}, Reward: {episode_reward:.2f}")
+    
+    return episode_rewards
 
 def main():
     """Test KUKA RL Agent"""
