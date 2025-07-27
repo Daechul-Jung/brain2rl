@@ -195,7 +195,7 @@ class PPOAgent:
         total_value_loss = 0
         
         for _ in range(self.K_epochs):
-            # Policy update
+            # Getting Policy via network
             policy_output = self.policy_net(observations)
             
             ## Divide policy output into mean and log std
@@ -205,6 +205,7 @@ class PPOAgent:
             
             dist = torch.distributions.Normal(mean, std)
             new_log_probs = dist.log_prob(actions).sum(dim=-1)
+            ## should explain more mathematically
             entropy = dist.entropy().sum(dim=-1)
             
             ### importance Sampling ratio
@@ -637,7 +638,7 @@ def train_agent(
             elif isinstance(agent, SACAgent):
                 action = agent.act(state)
                 next_state, reward, done, _ = env.step(action)
-                agent.remember(state, action, reward, next_state, done)
+                agent.store_transition(state, action, reward, next_state, done)
                 loss = agent.update()
             
             episode_reward += reward
