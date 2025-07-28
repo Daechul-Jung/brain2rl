@@ -119,7 +119,7 @@ class PPOAgent:
         """
         
         ### Make observations as torch
-        obs_tensor = torch.FloatTensor(observation).unsqueeze(0).to(self.device)
+        obs_tensor = torch.FloatTensor(observation[0]).unsqueeze(0).to(self.device)
         
         ### Even if training mode, policy net does not take gradient descent for getting action. Do update in update method
         with torch.no_grad():
@@ -630,7 +630,12 @@ def train_agent(
 
             if isinstance(agent, PPOAgent):
                 action, log_prob = agent.get_action(state)
-                next_state, reward, done, _ = env.step(action)
+                ##### Should be fixed for Humanoid v4 
+                next_state, reward, done, truncated, info = env.step(action) 
+                """
+                next_state, reward, 
+                """
+                
                 agent.store_transition(state, action, reward, next_state, done, log_prob)
             
             elif isinstance(agent, SACAgent):

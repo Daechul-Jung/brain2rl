@@ -9,7 +9,7 @@ from rl_agents_prac import PPOAgent, SACAgent, train_agent
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")
-    parser.add_argument('--env', type=str, default='Pendulum-v1', help='Gym environment name (e.g., HalfCheetah-v4, Ant-v4, Pendulum-v1)')
+    parser.add_argument('--env', type=str, default='Humanoid-v4', help='Gym environment name (e.g., HalfCheetah-v4, Ant-v4, Pendulum-v1)')
     parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac'], help='RL algorithm to use (ppo or sac)')
     parser.add_argument('--episodes', type=int, default=10, help='Number of training episodes')
     parser.add_argument('--max_steps', type=int, default=1000, help='Max steps per episode')
