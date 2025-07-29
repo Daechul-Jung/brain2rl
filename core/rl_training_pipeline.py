@@ -5,7 +5,7 @@ RL Training Pipeline
 This module handles the reinforcement learning training of KUKA robot arm
 using tokenized brain signal data for trajectory optimization.
 
-Author: Brain2RL Team
+Author: Daechul Jung
 Version: 1.0.0
 """
 
@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from simulation.kuka_rl_agent import PPOAgent, SACAgent
+from models.rl import PPOAgent, SACAgent
 from simulation.kuka_gym_environment import KUKAGymEnvironment
 
 

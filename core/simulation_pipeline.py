@@ -5,7 +5,7 @@ Simulation Pipeline
 This module handles the simulation of KUKA robot arm with trained RL agents
 in Gazebo environment, providing visualization and real-time control.
 
-Author: Brain2RL Team
+Author: Daechul Jung
 Version: 1.0.0
 """
 
@@ -25,9 +25,9 @@ from matplotlib.animation import FuncAnimation
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from brain2rl.simulation.kuka_gym_environment import KUKAGymEnvironment
-from brain2rl.simulation.kuka_ros_controller import KUKARosController
-from brain2rl.simulation.kuka_gazebo_world import KUKAGazeboWorld
+from simulation.kuka_gym_environment import KUKAGymEnvironment
+from simulation.kuka_ros_controller import KUKARosController
+from simulation.kuka_gazebo_world import KUKAGazeboWorld
 
 
 class SimulationMonitor:

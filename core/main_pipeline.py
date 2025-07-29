@@ -25,10 +25,10 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from brain2rl.core.classification_pipeline import ClassificationPipeline
-from brain2rl.core.tokenization_pipeline import TokenizationPipeline
-from brain2rl.core.rl_training_pipeline import RLTrainingPipeline
-from brain2rl.core.simulation_pipeline import SimulationPipeline
+from core.classification_pipeline import ClassificationPipeline
+from core.tokenization_pipeline import TokenizationPipeline
+from core.rl_training_pipeline import RLTrainingPipeline
+from core.simulation_pipeline import SimulationPipeline
 
 
 class Brain2RLMainPipeline:

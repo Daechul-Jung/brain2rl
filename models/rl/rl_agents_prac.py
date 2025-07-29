@@ -33,7 +33,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 class NeuralNetwork(nn.Module):
     """
     Neural network for KUKA arm control
-    Later I should fix this part more
+    Later I should fix this part more for utilizing information and complex tasks
     """
     
     def __init__(self, input_dim: int, output_dim: int, hidden_dims: List[int] = [256, 256, 128]):
@@ -258,7 +258,9 @@ class PPOAgent:
         return returns
     
     def save(self, filepath: str):
-        """Save agent"""
+        """
+        Save agent's parameters and optimizers
+        """
         torch.save({
             'policy_net': self.policy_net.state_dict(),
             'value_net': self.value_net.state_dict(),
@@ -268,7 +270,9 @@ class PPOAgent:
         print(f"Agent saved to {filepath}")
     
     def load(self, filepath: str):
-        """Load agent"""
+        """
+        Load agent's best parameters and optimizers with checkpoint
+        """
         checkpoint = torch.load(filepath, map_location=self.device)
         self.policy_net.load_state_dict(checkpoint['policy_net'])
         self.value_net.load_state_dict(checkpoint['value_net'])
@@ -635,8 +639,8 @@ def train_agent(
                 """
                 next_state, reward, 
                 """
-                
                 agent.store_transition(state, action, reward, next_state, done, log_prob)
+                agent.update() #### Should utilize info for more complicated agents and environment 
             
             elif isinstance(agent, SACAgent):
                 action = agent.get_action(state)
