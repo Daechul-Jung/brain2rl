@@ -29,7 +29,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # except ImportError:
 #     print("WARNING: stable-baselines3 not available. Using custom implementation.")
 #     SB3_AVAILABLE = False
-
+from models.rl.buffer import PPOBuffer
 class NeuralNetwork(nn.Module):
     """
     Neural network for KUKA arm control
@@ -79,7 +79,7 @@ class NeuralNetwork(nn.Module):
 class PPOAgent:
     """PPO Agent for KUKA arm control"""
     
-    def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
+    def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda", buffer = PPOBuffer ):
         self.observation_dim = observation_dim
         self.action_dim = action_dim
         if torch.cuda.is_available() and device == "cuda":
@@ -106,9 +106,12 @@ class PPOAgent:
         self.value_optimizer = optim.Adam(self.value_net.parameters(), lr=self.lr)
         ##############################################
         
+        self.step_count = 0
+        
         # Memory
         ## For storing trajectories and actions 
         self.memory = []
+        self.buffer = buffer
         
         print(f"PPO Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
     
@@ -165,6 +168,8 @@ class PPOAgent:
             'done': done,
             'log_prob': action_info['log_prob']
         })
+        self.buffer.store(obs=obs, act=action, rew=reward, val=0, logp=action_info['log_prob'], done=done)
+        self.step_count += 1
     
     def update(self):
         """Update policy and value networks"""
@@ -633,6 +638,10 @@ def train_agent(
                 env.render()
 
             if isinstance(agent, PPOAgent):
+                agent = KUKARLAgent(algorithm="ppo", observation_dim=env.observation_space.shape[0], 
+                                    action_dim=env.action_space.shape[0])
+                agent.train_episode(env)
+                
                 action, log_prob = agent.get_action(state)
                 ##### Should be fixed for Humanoid v4 
                 next_state, reward, done, truncated, info = env.step(action) 
