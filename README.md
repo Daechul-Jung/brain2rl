@@ -42,20 +42,17 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 - **Multi-modal sensor support**: EEG, fMRI, MEG, and other brain signals
 - **Advanced tokenization**: Transformer-based architecture with attention mechanisms
 - **Token-guided RL**: Novel approach using brain signal tokens to guide robot learning
-- **Real-time simulation**: Full Gazebo + ROS2 integration with KUKA robot models
+- **simulation**: OpenArm Project
 - **Flexible pipeline**: Run individual components or complete end-to-end workflow
-- **Windows compatibility**: Designed for Windows 10/11 with WSL support
 
 ## Installation
 
 ### Prerequisites
 
-- **Operating System**: Windows 10/11 with WSL2 or native Linux
+- **Operating System**: Ubuntu 22.04
 - **Python**: 3.8 or higher
 - **CUDA**: Optional but recommended for GPU acceleration
 - **ROS2 Humble**: For robot simulation (can be mocked for development)
-- **Gazebo Classic**: For physics simulation
-
 
 ## Pipeline Components
 
@@ -67,7 +64,7 @@ Converts raw sensor data into action classifications using CNN models.
 - Multi-channel EEG/sensor data processing
 - Temporal and spatial convolution layers
 - Artifact removal and signal preprocessing
-- Support for multiple data formats (NPY, NPZ, CSV, MAT, H5)
+- Support for multiple data formats 
 
 **Usage:**
 ```bash
@@ -315,7 +312,7 @@ If you use Brain2RL in your research, please cite:
 
 ## Contact
 
-- **Email**: daechul.jung@vanderbilt.edu, jungdaechul@berkeley.edu
+- **Email**: jungdaechul@berkeley.edu
 - **GitHub**: https://github.com/Daechul-Jung/brain2rl
 - **Documentation**: https://brain2rl.readthedocs.io
 
