@@ -1,5 +1,5 @@
 """
-KUKA Reinforcement Learning Agent
+Reinforcement Learning Agent
 Implements various RL algorithms
 """
 
@@ -32,7 +32,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from rl.buffer import PPOBuffer
 class NeuralNetwork(nn.Module):
     """
-    Neural network for KUKA arm control
+    Neural network for OpenArm or humanoid v-4
     Later I should fix this part more for utilizing information and complex tasks
     """
     
@@ -77,7 +77,7 @@ class NeuralNetwork(nn.Module):
         return self.network(x)
 
 class PPOAgent:
-    """PPO Agent for KUKA arm control"""
+    """PPO Agent for OpenArm or humanoid control"""
     
     def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda", buffer = PPOBuffer ):
         self.observation_dim = observation_dim
@@ -93,9 +93,10 @@ class PPOAgent:
         self.gamma = 0.99  ## Discount factor
         self.eps_clip = 0.2
         self.K_epochs = 4
+        self.step_per_rollout = 4096
         self.value_coef = 0.5 ## Value function coefficient 
         self.entropy_coef = 0.01 ## Entropy coefficient 
-        
+        self.minibatch_size = 256
         ###### Policy Gradient Hyperparameters ######
         # Networks
         self.policy_net = NeuralNetwork(observation_dim, action_dim * 2).to(self.device)  # mean + std
@@ -111,7 +112,7 @@ class PPOAgent:
         # Memory
         ## For storing trajectories and actions 
         self.memory = []
-        self.buffer = buffer
+        self.buffer = PPOBuffer(obs_dim=observation_dim, act_dim=action_dim, size=self.step_per_rollout, gamma=self.gamma, lam=0.95, device=self.device.type)
         
         print(f"PPO Agent initialized - Obs: {observation_dim}, Action: {action_dim}")
     
@@ -120,9 +121,18 @@ class PPOAgent:
         Get action from policy
         During getting action, we do not take gradient descent
         """
-        
+        if isinstance(observation, (list, tuple)):
+            obs_np = np.asarray(observation, dtype=np.float32)
+        elif isinstance(observation, np.ndarray):
+            obs_np = observation.astype(np.float32, copy=False)
+        else:
+            obs_np = np.array(observation, dtype=np.float32)
+
+        if obs_np.ndim == 1:
+            obs_np = obs_np[None, :]  # add batch dim
         ### Make observations as torch
-        obs_tensor = torch.FloatTensor(observation[0]).unsqueeze(0).to(self.device)
+        obs_tensor = torch.from_numpy(obs_np).to(self.device)
+        
         
         ### Even if training mode, policy net does not take gradient descent for getting action. Do update in update method
         with torch.no_grad():
@@ -132,24 +142,22 @@ class PPOAgent:
             mean = policy_output[:, :self.action_dim]
             log_std = policy_output[:, self.action_dim:]
             std = torch.exp(torch.clamp(log_std, -20, 2))
-            
+            dist = torch.distributions.Normal(mean, std)
             if training: # When training
-                
-                ### Sample action from distribution based on mean and std
-                dist = torch.distributions.Normal(mean, std)
-            
+                ### Sample action from distribution based on mean and std            
                 action = dist.sample()
                 ### Take log probability of action and take sum over action's last dimension
                 log_prob = dist.log_prob(action).sum(dim=-1)
             else: # Inference
                 action = mean
                 ### Since log prob is not used in inference, we set it to zero
-                log_prob = torch.zeros(1)
+                log_prob = torch.zeros(action.shape[0])
             
             
             ### For numerical issue, we bound action to [-1,1]
             action = torch.tanh(action)  # Bound action to [-1, 1]
-        
+
+
         action_info = {
             'log_prob': log_prob.item(),
             'mean': mean.squeeze().cpu().numpy(),
@@ -158,6 +166,39 @@ class PPOAgent:
         
         return action.squeeze().cpu().numpy(), action_info
     
+    def get_action_with_buffer(self, observation, training):
+        obs = np.asarray(observation, dtype=np.float32)
+        if obs.ndim == 1:
+            obs = obs[None, :]
+        obs_tensor = torch.from_numpy(obs).to(self.device)
+
+        ### Even if training mode, policy net does not take gradient descent for getting action. Do update in update method
+        with torch.no_grad():
+            ## Get Policy output based on observation
+            policy_output = self.policy_net(obs_tensor) 
+            ### Since policy net would return 2 * action dim, 
+            mean = policy_output[:, :self.action_dim]
+            log_std = policy_output[:, self.action_dim:]
+            std = torch.exp(torch.clamp(log_std, -20, 2))
+            dist = torch.distributions.Normal(mean, std)
+            if training: # When training
+                ### Sample action from distribution based on mean and std            
+                action = dist.sample()
+                ### Take log probability of action and take sum over action's last dimension
+                log_prob = dist.log_prob(action).sum(dim=-1)
+            else: # Inference
+                action = mean
+                ### Since log prob is not used in inference, we set it to zero
+                log_prob = torch.zeros(action.shape[0])
+            
+            
+            ### For numerical issue, we bound action to [-1,1]
+            env_action = torch.tanh(action)  # Bound action to [-1, 1]
+            value = self.value_net(obs_tensor).squeeze(-1)
+        
+        return (env_action.squeeze(0).cpu().numpy(), float(log_prob.squeeze(0).item()), float(value.squeeze(0).item()), action.squeeze(0).cpu().numpy())
+    
+
     def store_transition(self, obs, action, reward, next_obs, done, action_info):
         """Store transition in memory"""
         self.memory.append({
@@ -168,13 +209,10 @@ class PPOAgent:
             'done': done,
             'log_prob': action_info['log_prob']
         })
-        self.buffer.store(obs=obs, act=action, rew=reward, val=0, logp=action_info['log_prob'], done=done)
-        self.step_count += 1
+        
     
     def update(self):
         """Update policy and value networks"""
-        if len(self.memory) == 0:
-            return {}
         
         # Convert memory to tensors
         observations = torch.FloatTensor([m['obs'] for m in self.memory]).to(self.device)
@@ -182,16 +220,16 @@ class PPOAgent:
         rewards = torch.FloatTensor([m['reward'] for m in self.memory]).to(self.device)
         dones = torch.BoolTensor([m['done'] for m in self.memory]).to(self.device)
         old_log_probs = torch.FloatTensor([m['log_prob'] for m in self.memory]).to(self.device)
-        
-        # Calculate returns and advantages
-        returns = self._calculate_returns(rewards, dones)
-        # Calculate values of observations via value network 
-        values = self.value_net(observations).squeeze()
-        ## Since advantages are used to normalize returns, we calculate advantages 
-        ## Advantages are returns - values
-        advantages = returns - values
-        ## Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        with torch.no_grad():
+            # Calculate returns and advantages
+            returns = self._calculate_returns(rewards, dones)
+            # Calculate values of observations via value network 
+            values = self.value_net(observations).squeeze()
+            ## Since advantages are used to normalize returns, we calculate advantages 
+            ## Advantages are returns - values
+            advantages = returns - values
+            ## Normalize advantages
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
         # Update for K epochs
         total_policy_loss = 0
@@ -244,7 +282,61 @@ class PPOAgent:
             'value_loss': total_value_loss / self.K_epochs,
             'mean_return': returns.mean().item()
         }
-    
+    def updateWithBuffer(self):
+        data = self.buffer.get()
+        
+        obs = data['obs']
+        act = data['act']
+        ret = data['ret']
+        adv = data['adv']
+        log_prob = data['logp']
+
+        n = obs.size(0)
+        idx = torch.arange(n, device=self.device)
+
+        policy_loss_acc = 0.0
+        value_loss_acc = 0.0
+
+        for _ in range(self.K_epochs):
+            perm = idx[torch.randperm(n)]
+            for start in range(0, n ,self.minibatch_size):
+                mini_batch = perm[start: start + self.minibatch_size]
+                policy_out = self.policy_net(obs[mini_batch])
+                mean = policy_out[:, :self.action_dim]
+                std = torch.exp(torch.clamp(policy_out[:, self.action_dim:], -20, 2))
+                dist = torch.distributions.Normal(mean, std)
+
+                new_log_prob = dist.log_prob(act[mini_batch]).sum(dim = -1)
+                entropy = dist.entropy().sum(dim = -1)
+
+                ratio = torch.exp(new_log_prob - log_prob[mini_batch])
+                surr1 = ratio * adv[mini_batch]
+                surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * adv[mini_batch]
+                policy_loss = -(torch.min(surr1, surr2)).mean() - self.entropy_coef * entropy
+                
+                # policy loss update
+                self.policy_optimizer.zero_grad()
+                policy_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 0.5)
+                self.policy_optimizer.step()
+
+                # value loss update
+                value_pred = self.value_net(obs[mini_batch])
+                value_loss = F.mse_loss(value_pred, ret[mini_batch])
+
+                self.value_optimizer.zero_grad()
+                value_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), 0.5)
+                self.value_optimizer.step()
+
+                policy_loss_acc += policy_loss.item() * mini_batch.numel()
+                value_loss_acc  += value_loss.item() * mini_batch.numel()
+
+        return {
+            'policy_loss': policy_loss_acc / n / self.K_epochs,
+            'value_loss':  value_loss_acc  / n / self.K_epochs,
+        }
+
     def _calculate_returns(self, rewards, dones):
         """
         Calculate discounted returns with discount factor gamma
@@ -286,7 +378,7 @@ class PPOAgent:
         print(f"Agent loaded from {filepath}")
 
 class SACAgent:
-    """SAC Agent for KUKA arm control"""
+    """SAC Agent for OpenArm or Humanoid control"""
     
     def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
         self.observation_dim = observation_dim
@@ -471,246 +563,258 @@ class SACAgent:
         self.critic2_optimizer.load_state_dict(checkpoint['critic2_optimizer'])
         print(f"SAC Agent loaded from {filepath}")
 
-class KUKARLAgent:
-    """Unified RL Agent interface for KUKA arm control"""
-    
-    def __init__(self, algorithm: str = "ppo", observation_dim: int = 30, action_dim: int = 7, 
-                 device: str = "cuda", **kwargs):
-        """
-        Initialize KUKA RL Agent
-        
-        Args:
-            algorithm: RL algorithm ('ppo', 'sac', 'thinking')
-            observation_dim: Observation space dimension
-            action_dim: Action space dimension
-            device: Computing device ('cuda')
-        """
-        if device == "cuda":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        
-        self.device = device
-        self.algorithm = algorithm.lower()
-        self.observation_dim = observation_dim
-        self.action_dim = action_dim
-        
-        # Training statistics
-        self.training_stats = {
-            'episodes': 0,
-            'total_steps': 0,
-            'best_reward': -float('inf'),
-            'recent_rewards': deque(maxlen=100)
-        }
-        
-        # Initialize agent based on algorithm
-        if self.algorithm == "ppo":
-            self.agent = PPOAgent(observation_dim, action_dim, device)
-        elif self.algorithm == "sac":
-            self.agent = SACAgent(observation_dim, action_dim, device)
-        elif self.algorithm == "thinking":
-            self.agent
-        else:
-            raise ValueError(f"Unknown algorithm: {algorithm}")
-        
-        print(f"KUKA RL Agent initialized - Algorithm: {algorithm}, Device: {device}")
-    
-    def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
-        """Get action from agent"""
-        return self.agent.get_action(observation, training)
-    
-    def store_transition(self, obs, action, reward, next_obs, done, action_info):
-        """Store transition"""
-        self.agent.store_transition(obs, action, reward, next_obs, done, action_info)
-    
-    def update(self) -> Dict:
-        """Update agent"""
-        return self.agent.update()
-    
-    def train_episode(self, env) -> Dict:
-        """Train agent for one episode"""
-        obs, info = env.reset()
-        episode_reward = 0
-        episode_steps = 0
-        done = False
-        
-        while not done:
-            # Get action
-            action, action_info = self.get_action(obs, training=True)
-            
-            # Execute action
-            next_obs, reward, terminated, truncated, step_info = env.step(action)
-            done = terminated or truncated
-            
-            # Store transition
-            self.store_transition(obs, action, reward, next_obs, done, action_info)
-            
-            obs = next_obs
-            episode_reward += reward
-            episode_steps += 1
-        
-        # Update agent
-        update_info = self.update()
-        
-        # Update statistics
-        self.training_stats['episodes'] += 1
-        self.training_stats['total_steps'] += episode_steps
-        self.training_stats['recent_rewards'].append(episode_reward)
-        if episode_reward > self.training_stats['best_reward']:
-            self.training_stats['best_reward'] = episode_reward
-        
-        episode_info = {
-            'episode_reward': episode_reward,
-            'episode_steps': episode_steps,
-            'success': step_info.get('episode_success', False),
-            'task_completed': step_info.get('task_completed', False),
-            **update_info
-        }
-        
-        return episode_info
-    
-    def evaluate(self, env, num_episodes: int = 10) -> Dict:
-        """Evaluate agent"""
-        eval_rewards = []
-        eval_successes = []
-        
-        for _ in range(num_episodes):
-            obs, _ = env.reset()
-            episode_reward = 0
-            done = False
-            
-            while not done:
-                action, _ = self.get_action(obs, training=False)
-                obs, reward, terminated, truncated, info = env.step(action)
-                episode_reward += reward
-                done = terminated or truncated
-            
-            eval_rewards.append(episode_reward)
-            eval_successes.append(info.get('episode_success', False))
-        
-        return {
-            'mean_reward': np.mean(eval_rewards),
-            'std_reward': np.std(eval_rewards),
-            'success_rate': np.mean(eval_successes),
-            'episodes': num_episodes
-        }
-    
-    def save(self, filepath: str):
-        """Save agent and training statistics"""
-        # Save agent
-        agent_path = filepath.replace('.pkl', '_agent.pth')
-        self.agent.save(agent_path)
-        
-        # Save training statistics
-        with open(filepath, 'wb') as f:
-            pickle.dump(self.training_stats, f)
-        
-        print(f"Full agent saved: {filepath}")
-    
-    def load(self, filepath: str):
-        """Load agent and training statistics"""
-        # Load agent
-        agent_path = filepath.replace('.pkl', '_agent.pth')
-        if os.path.exists(agent_path):
-            self.agent.load(agent_path)
-        
-        # Load training statistics
-        if os.path.exists(filepath):
-            with open(filepath, 'rb') as f:
-                self.training_stats = pickle.load(f)
-        
-        print(f"Full agent loaded: {filepath}")
 
-def train_agent(
-    env: gym.Env,
-    agent: Union[ PPOAgent, SACAgent],
-    num_episodes: int,
-    max_steps: int = 1000,
-    render: bool = False
-) -> List[float]:
-    """Train an RL agent"""
+def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
     episode_rewards = []
-    
-    for episode in range(num_episodes):
-        state = env.reset()
-        episode_reward = 0
-        
-        for step in range(max_steps):
+    for ep in range(num_episodes):
+        state, info = env.reset()
+        episode_reward = 0.0
+        for t in range(max_steps):
             if render:
                 env.render()
 
-            if isinstance(agent, PPOAgent):
-                agent = KUKARLAgent(algorithm="ppo", observation_dim=env.observation_space.shape[0], 
-                                    action_dim=env.action_space.shape[0])
-                agent.train_episode(env)
-                
-                action, log_prob = agent.get_action(state)
-                ##### Should be fixed for Humanoid v4 
-                next_state, reward, done, truncated, info = env.step(action) 
-                """
-                next_state, reward, 
-                """
-                agent.store_transition(state, action, reward, next_state, done, log_prob)
-                agent.update() #### Should utilize info for more complicated agents and environment 
-            
-            elif isinstance(agent, SACAgent):
-                action = agent.get_action(state)
-                next_state, reward, done, _ = env.step(action)
-                agent.store_transition(state, action, reward, next_state, done)
-                loss = agent.update()
-            
-            episode_reward += reward
+            action, action_info = agent.get_action(state, training=True)
+
+            # map [-1,1] -> env range
+            if hasattr(env.action_space, "low") and isinstance(env.action_space, gym.spaces.Box):
+                low, high = env.action_space.low, env.action_space.high
+                action = low + 0.5 * (action + 1.0) * (high - low)
+
+            next_state, reward, terminated, truncated, step_info = env.step(action)
+            done = terminated or truncated
+
+            agent.store_transition(state, action, reward, next_state, done, action_info)
+
             state = next_state
-            
+            episode_reward += reward
             if done:
                 break
-        
+
+        agent.update()
         episode_rewards.append(episode_reward)
-        print(f"Episode {episode + 1}/{num_episodes}, Reward: {episode_reward:.2f}")
-    
+        print(f"Episode {ep+1}/{num_episodes}, Reward: {episode_reward:.2f}")
     return episode_rewards
 
-# def main():
-#     """Test KUKA RL Agent"""
-#     env = gym.make('Humanoid-v4')
+def train_agent_with_buffer(env, agent:PPOAgent, num_episodes:int, max_steps = 1000, render=False):
+    episode_rewards = []
+    episode_done = 0
 
-#     env = env(task_type="reach")
+    state, info = env.reset()
+    episode_ret = 0.0
+    episode_len = 0
+
+    while episode_done < num_episodes:
+        for t in range(agent.step_per_rollout):
+            if render:
+                env.render()
+
+            action, log_prob, value, action_before_tahn = agent.get_action_with_buffer(state, training=True)
+
+            if hasattr(env.action_space, "low") and isinstance(env.action_space, gym.spaces.Box):
+                low, high = env.action_space.low, env.action_space.high
+                env_action = low + 0.5 * (action + 1.0) * (high - low)
+
+            else:
+                env_action = action
+
+            next_state, reward, terminated, truncated, info = env.step(env_action)
+            done = bool(terminated or truncated)
+
+            agent.buffer.store(
+                obs = state, 
+                act = action_before_tahn,
+                rew = reward,
+                val = value, 
+                logp = log_prob,
+                done = done
+            )
+
+            episode_ret += reward
+            episode_len += 1
+
+            state = next_state
+
+            if done or episode_len >= max_steps:
+                agent.buffer.finish_path(last_val=0)
+                episode_rewards.append(episode_ret)
+                episode_done += 1
+                state, info = env.reset()
+                episode_ret = 0
+                episode_len = 0
+
+                if episode_done > num_episodes:
+                    break 
+        if episode_len > 0:
+            with torch.no_grad():
+                s = np.asarray(state, dtype=np.float32)
+                if s.ndim == 1:
+                    s = s[None, :]
+                v_boot = agent.value_net(torch.from_numpy(s).to(agent.device)).squeeze(-1).item()
+            agent.buffer.finish_path(last_val=v_boot)
+
+            
+            # if episode_done < num_episodes and episode_len > 0 and agent.buffer.ptr == agent.buffer.max_size:
+            #     with torch.no_grad():
+            #         # bootstrap
+            #         s = np.asarray(state, dtype=np.float32)
+            #         if s.ndim == 1: s = s[None, :]
+            #         v = agent.value_net(torch.from_numpy(s).to(agent.device)).item()
+            #     agent.buffer.finish_path(last_val=v)
+
+            # Update PPO on the collected rollout
+            info = agent.updateWithBuffer()
+            if info:
+                print(f"Update: policy_loss={info['policy_loss']:.4f}, value_loss={info['value_loss']:.4f}")
+            # Clear buffer for next iteration
+            agent.buffer.clear()
+
+
+        return episode_rewards
+# class RLAgent:
+#     """Unified RL Agent interface for KUKA arm control"""
     
-#     try:
-#         obs, _ = env.reset()
-#         obs_dim = len(obs)
-#         action_dim = 7
+#     def __init__(self, algorithm: str = "ppo", observation_dim: int = 30, action_dim: int = 7, 
+#                  device: str = "cuda", **kwargs):
+#         """
+#         Initialize KUKA RL Agent
         
-#         print(f"Environment: obs_dim={obs_dim}, action_dim={action_dim}")
+#         Args:
+#             algorithm: RL algorithm ('ppo', 'sac', 'thinking')
+#             observation_dim: Observation space dimension
+#             action_dim: Action space dimension
+#             device: Computing device ('cuda')
+#         """
+#         if device == "cuda":
+#             device = "cuda" if torch.cuda.is_available() else "cpu"
         
-#         # Test different algorithms
-#         algorithms = ["ppo", "sac", "thinking"]
+#         self.device = device
+#         self.algorithm = algorithm.lower()
+#         self.observation_dim = observation_dim
+#         self.action_dim = action_dim
         
-#         for algo in algorithms:
-#             print(f"\n=== Testing {algo.upper()} Agent ===")
+#         # Training statistics
+#         self.training_stats = {
+#             'episodes': 0,
+#             'total_steps': 0,
+#             'best_reward': -float('inf'),
+#             'recent_rewards': deque(maxlen=100)
+#         }
+        
+#         # Initialize agent based on algorithm
+#         if self.algorithm == "ppo":
+#             self.agent = PPOAgent(observation_dim, action_dim, device)
+#         elif self.algorithm == "sac":
+#             self.agent = SACAgent(observation_dim, action_dim, device)
+#         elif self.algorithm == "thinking":
+#             self.agent
+#         else:
+#             raise ValueError(f"Unknown algorithm: {algorithm}")
+        
+#         print(f"KUKA RL Agent initialized - Algorithm: {algorithm}, Device: {device}")
+    
+#     def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
+#         """Get action from agent"""
+#         return self.agent.get_action(observation, training)
+    
+#     def store_transition(self, obs, action, reward, next_obs, done, action_info):
+#         """Store transition"""
+#         self.agent.store_transition(obs, action, reward, next_obs, done, action_info)
+    
+#     def update(self) -> Dict:
+#         """Update agent"""
+#         return self.agent.update()
+    
+#     def train_episode(self, env) -> Dict:
+#         """Train agent for one episode"""
+#         obs, info = env.reset()
+#         episode_reward = 0
+#         episode_steps = 0
+#         done = False
+        
+#         while not done:
+#             # Get action
+#             action, action_info = self.get_action(obs, training=True)
             
-#             agent = KUKARLAgent(
-#                 algorithm=algo,
-#                 observation_dim=obs_dim,
-#                 action_dim=action_dim
-#             )
+#             # Execute action
+#             next_obs, reward, terminated, truncated, step_info = env.step(action)
+#             done = terminated or truncated
             
-#             # Train for a few episodes
-#             for episode in range(3):
-#                 episode_info = agent.train_episode(env)
-#                 print(f"Episode {episode + 1}: {episode_info}")
+#             # Store transition
+#             self.store_transition(obs, action, reward, next_obs, done, action_info)
             
-#             # Evaluate
-#             eval_info = agent.evaluate(env, num_episodes=2)
-#             print(f"Evaluation: {eval_info}")
+#             obs = next_obs
+#             episode_reward += reward
+#             episode_steps += 1
+        
+#         # Update agent
+#         update_info = self.update()
+        
+#         # Update statistics
+#         self.training_stats['episodes'] += 1
+#         self.training_stats['total_steps'] += episode_steps
+#         self.training_stats['recent_rewards'].append(episode_reward)
+#         if episode_reward > self.training_stats['best_reward']:
+#             self.training_stats['best_reward'] = episode_reward
+        
+#         episode_info = {
+#             'episode_reward': episode_reward,
+#             'episode_steps': episode_steps,
+#             'success': step_info.get('episode_success', False),
+#             'task_completed': step_info.get('task_completed', False),
+#             **update_info
+#         }
+        
+#         return episode_info
+    
+#     def evaluate(self, env, num_episodes: int = 10) -> Dict:
+#         """Evaluate agent"""
+#         eval_rewards = []
+#         eval_successes = []
+        
+#         for _ in range(num_episodes):
+#             obs, _ = env.reset()
+#             episode_reward = 0
+#             done = False
             
-#             # Save/load test
-#             save_path = f"/tmp/kuka_{algo}_test.pkl"
-#             agent.save(save_path)
-#             agent.load(save_path)
+#             while not done:
+#                 action, _ = self.get_action(obs, training=False)
+#                 obs, reward, terminated, truncated, info = env.step(action)
+#                 episode_reward += reward
+#                 done = terminated or truncated
             
-#     except Exception as e:
-#         print(f"Error: {e}")
-#     finally:
-#         env.close()
+#             eval_rewards.append(episode_reward)
+#             eval_successes.append(info.get('episode_success', False))
+        
+#         return {
+#             'mean_reward': np.mean(eval_rewards),
+#             'std_reward': np.std(eval_rewards),
+#             'success_rate': np.mean(eval_successes),
+#             'episodes': num_episodes
+#         }
+    
+#     def save(self, filepath: str):
+#         """Save agent and training statistics"""
+#         # Save agent
+#         agent_path = filepath.replace('.pkl', '_agent.pth')
+#         self.agent.save(agent_path)
+        
+#         # Save training statistics
+#         with open(filepath, 'wb') as f:
+#             pickle.dump(self.training_stats, f)
+        
+#         print(f"Full agent saved: {filepath}")
+    
+#     def load(self, filepath: str):
+#         """Load agent and training statistics"""
+#         # Load agent
+#         agent_path = filepath.replace('.pkl', '_agent.pth')
+#         if os.path.exists(agent_path):
+#             self.agent.load(agent_path)
+        
+#         # Load training statistics
+#         if os.path.exists(filepath):
+#             with open(filepath, 'rb') as f:
+#                 self.training_stats = pickle.load(f)
+        
+#         print(f"Full agent loaded: {filepath}")
 
-# if __name__ == "__main__":
-#     main() 
