@@ -7,7 +7,7 @@ import os
 import sys
 import time
 import numpy as np
-import gym
+import gymnasium as gym
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -29,7 +29,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # except ImportError:
 #     print("WARNING: stable-baselines3 not available. Using custom implementation.")
 #     SB3_AVAILABLE = False
-from models.rl.buffer import PPOBuffer
+from rl.buffer import PPOBuffer
 class NeuralNetwork(nn.Module):
     """
     Neural network for KUKA arm control
