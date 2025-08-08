@@ -7,7 +7,7 @@ class PPOBuffer:
     Stores obs, actions, rewards, dones, log_probs, values.
     Computes advantages and returns for PPO update.
     """
-    def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95, device='cpu'):
+    def __init__(self, obs_dim, act_dim, size, gamma=0.99, lam=0.95, device='cuda'):
         self.obs_buf = np.zeros((size, obs_dim), dtype=np.float32)
         self.act_buf = np.zeros((size, act_dim), dtype=np.float32)
         self.adv_buf = np.zeros(size, dtype=np.float32)
