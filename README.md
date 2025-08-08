@@ -17,7 +17,7 @@ Brain2RL is an end-to-end pipeline that transforms brain signal data into robot 
 1. **Classification**: Sensor data → Action classification
 2. **Tokenization**: Time series data → Tokens with Q/K/V matrices
 3. **RL Training**: Token-guided reinforcement learning
-4. **Simulation**: KUKA robot arm control in Gazebo and OpenArm Project
+4. **Simulation**: OpenArm Project and Humanoid v-4
 
 The pipeline enables robots to learn from human brain signals, creating a direct brain-to-robot interface for complex manipulation tasks.
 
@@ -138,10 +138,9 @@ python brain2rl/cli.py rl-training \
 Runs trained agents in realistic KUKA robot simulation with Gazebo and ROS2.
 
 **Features:**
-- Real-time KUKA iiwa simulation
 - Multiple manipulation tasks (reach, grasp, manipulation)
 - Performance monitoring and visualization
-- ROS2/Gazebo integration with mock modes
+- OpenArm Project
 
 **Usage:**
 ```bash
