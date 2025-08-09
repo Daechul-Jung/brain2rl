@@ -118,7 +118,7 @@ class PPOAgent:
     
     def get_action(self, observation: np.ndarray, training: bool = True) -> Tuple[np.ndarray, Dict]:
         """
-        Get action from policy
+        Get action from policy without buffer
         During getting action, we do not take gradient descent
         """
         if isinstance(observation, (list, tuple)):
@@ -167,6 +167,15 @@ class PPOAgent:
         return action.squeeze().cpu().numpy(), action_info
     
     def get_action_with_buffer(self, observation, training):
+        """
+        Get action from policy with buffer
+        Args:
+            observation (_type_): _description_
+            training (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         obs = np.asarray(observation, dtype=np.float32)
         if obs.ndim == 1:
             obs = obs[None, :]
@@ -212,21 +221,26 @@ class PPOAgent:
         
     
     def update(self):
-        """Update policy and value networks"""
+        """
+        Update policy and value networks after collecting trajectories in one episode
+        """
         
         # Convert memory to tensors
-        observations = torch.FloatTensor([m['obs'] for m in self.memory]).to(self.device)
+        ## Trajectories of agent stored in memory
+        observations = torch.FloatTensor([m['obs'] for m in self.memory]).to(self.device) 
         actions = torch.FloatTensor([m['action'] for m in self.memory]).to(self.device)
         rewards = torch.FloatTensor([m['reward'] for m in self.memory]).to(self.device)
         dones = torch.BoolTensor([m['done'] for m in self.memory]).to(self.device)
         old_log_probs = torch.FloatTensor([m['log_prob'] for m in self.memory]).to(self.device)
+        
         with torch.no_grad():
+            ### While calculating returns and advantages, we do not take gradient descent
             # Calculate returns and advantages
             returns = self._calculate_returns(rewards, dones)
             # Calculate values of observations via value network 
             values = self.value_net(observations).squeeze()
             ## Since advantages are used to normalize returns, we calculate advantages 
-            ## Advantages are returns - values
+            ## Advantages are returns - values which represent how much better the action is compared to the value of the state
             advantages = returns - values
             ## Normalize advantages
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -249,11 +263,12 @@ class PPOAgent:
             ## should explain more mathematically
             entropy = dist.entropy().sum(dim=-1)
             
-            ### importance Sampling ratio
+            ### Importance Sampling ratio
             ratio = torch.exp(new_log_probs - old_log_probs) ### ratio = new_log_probs / old_log_probs
             surr1 = ratio * advantages
             surr2 = torch.clamp(ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
             
+            ### Policy update based on loss which is scalar
             policy_loss = -torch.min(surr1, surr2).mean() - self.entropy_coef * entropy.mean()
             
             self.policy_optimizer.zero_grad()
@@ -567,6 +582,7 @@ class SACAgent:
 def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
     episode_rewards = []
     for ep in range(num_episodes):
+        # For every episode, reset the environment 
         state, info = env.reset()
         episode_reward = 0.0
         for t in range(max_steps):
@@ -589,7 +605,7 @@ def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
             episode_reward += reward
             if done:
                 break
-
+        # After every episode, update the agent 
         agent.update()
         episode_rewards.append(episode_reward)
         print(f"Episode {ep+1}/{num_episodes}, Reward: {episode_reward:.2f}")
