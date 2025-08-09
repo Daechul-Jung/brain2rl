@@ -24,9 +24,9 @@ def render_agent(agent, env_name: str, episodes: int = 1):
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")
-    parser.add_argument('--env', type=str, default='Humanoid-v4', help='Gym environment name')
+    parser.add_argument('--env', type=str, default='Humanoid-v5', help='Gym environment name')
     parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac'], help='RL algorithm to use')
-    parser.add_argument('--episodes', type=int, default=10, help='Number of training episodes')
+    parser.add_argument('--episodes', type=int, default=1000, help='Number of training episodes')
     parser.add_argument('--max_steps', type=int, default=1000, help='Max steps per episode')
     parser.add_argument('--render', action='store_true', help='Render environment')
     parser.add_argument('--buffer', type=str, default='no', help='Training without buffer')
@@ -58,14 +58,14 @@ def main():
     agent.save('ppo_humanoid.pth')
     env.close()
 
-    env = gym.make("Humanoid-v4")  # just to get dims (or store them)
+    env = gym.make(args.env)  # just to get dims (or store them)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
     env.close()
 
-    agent2 = PPOAgent(obs_dim, act_dim, device="cpu")
+    agent2 = PPOAgent(obs_dim, act_dim, device="cuda")
     agent2.load("ppo_humanoid.pth")
-    render_agent(agent2, "Humanoid-v4", episodes=1)
+    render_agent(agent2, args.env, episodes=args.episodes)
 
 
 
