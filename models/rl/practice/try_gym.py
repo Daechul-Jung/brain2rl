@@ -3,9 +3,12 @@ import gymnasium as gym
 import numpy as np
 import sys
 import os
-
 sys.path.append(os.path.join(os.path.dirname(__file__), 'models', 'rl'))
-from rl_agents_prac import PPOAgent, SACAgent, train_agent, train_agent_with_buffer
+from models.rl.practice.agents.ppo import PPOAgent 
+from models.rl.practice.agents.sac import SACAgent
+from models.rl.utils.train import train_agent, train_agent_with_buffer
+
+
 
 def render_agent(agent, env_name: str, episodes: int = 1):
     env = gym.make(env_name, render_mode="human")

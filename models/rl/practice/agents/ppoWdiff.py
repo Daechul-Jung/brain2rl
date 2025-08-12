@@ -1,3 +1,7 @@
+from models.rl.utils.diffusion import *
+from models.rl.practice.agents.ppo import *
+from models.rl.utils.NeuralNetwork import *
+
 class DiffusionPPOAgent(PPOAgent):
     """PPO Agent with diffusion-based policy"""
     

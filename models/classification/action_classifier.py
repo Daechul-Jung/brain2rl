@@ -10,7 +10,6 @@ from torch.utils.tensorboard import SummaryWriter
 # Import utilities
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from utils.data_utils import load_eeg_data, load_fmri_data, create_dataloader
 
 class EEGConvNet(nn.Module):
     """
@@ -66,16 +65,16 @@ def train_classifier(args):
     print(device)
     # Load data
     if args.data == 'eeg':
-        X, y = load_eeg_data(os.path.join('data', 'eeg'))
+        X, y = ...#load_eeg_data(os.path.join('data', 'eeg'))
         model = EEGConvNet(n_channels=X.shape[1], n_times=X.shape[2], n_classes=len(np.unique(y)))
     else:  # fmri
-        X, y = load_fmri_data(os.path.join('data', 'fmri'))
+        X, y = ...#load_fmri_data(os.path.join('data', 'fmri'))
         
     
     model = model.to(device)
     
     # Create dataloaders
-    train_loader, val_loader, _ = create_dataloader(X, y, batch_size=args.batch_size)
+    train_loader, val_loader, _ = ...#create_dataloader(X, y, batch_size=args.batch_size)
     
     # Loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -152,10 +151,10 @@ def evaluate_classifier(args):
     
     # Load data
     if args.data == 'eeg':
-        X, y = load_eeg_data(os.path.join('data', 'eeg'))
+        X, y = ...#load_eeg_data(os.path.join('data', 'eeg'))
         model = EEGConvNet(n_channels=X.shape[1], n_times=X.shape[2], n_classes=len(np.unique(y)))
     else:  # fmri
-        X, y = load_fmri_data(os.path.join('data', 'fmri'))
+        X, y = ...#load_fmri_data(os.path.join('data', 'fmri'))
         
     
     # Load the trained model
@@ -165,7 +164,7 @@ def evaluate_classifier(args):
     model.eval()
     
     # Create dataloaders (we only need the test set)
-    _, _, test_loader = create_dataloader(X, y, batch_size=args.batch_size)
+    _, _, test_loader = ...#create_dataloader(X, y, batch_size=args.batch_size)
     
     # Loss function
     criterion = nn.CrossEntropyLoss()

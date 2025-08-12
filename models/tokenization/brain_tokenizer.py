@@ -9,7 +9,6 @@ from torch.utils.tensorboard import SummaryWriter
 # Import utilities
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from utils.data_utils import load_eeg_data, load_fmri_data, create_dataloader
 
 class CNNFeatureExtractor(nn.Module):
     """
@@ -122,16 +121,16 @@ def train_tokenizer(args):
     
     # Load data
     if args.data == 'eeg':
-        X, y = load_eeg_data(os.path.join('data', 'eeg'))
+        X, y = ...#load_eeg_data(os.path.join('data', 'eeg'))
         model = BrainTokenizer(input_channels=X.shape[1], input_length=X.shape[2])
     else:  # fmri
-        X, y = load_fmri_data(os.path.join('data', 'fmri'))
+        X, y = ...#load_fmri_data(os.path.join('data', 'fmri'))
         model = BrainTokenizer(input_channels=X.shape[1], input_length=X.shape[2])
     
     model = model.to(device)
     
     # Create dataloaders
-    train_loader, val_loader, _ = create_dataloader(X, y, batch_size=args.batch_size)
+    train_loader, val_loader, _ = ...#create_dataloader(X, y, batch_size=args.batch_size)
     
     # For tokenization, we'll use a reconstruction loss as a simplified approach
     # In a real-world scenario, you'd want to define a more sophisticated training objective
@@ -216,10 +215,10 @@ def evaluate_tokenizer(args):
     
     # Load data
     if args.data == 'eeg':
-        X, y = load_eeg_data(os.path.join('data', 'eeg'))
+        X, y = ...#load_eeg_data(os.path.join('data', 'eeg'))
         model = BrainTokenizer(input_channels=X.shape[1], input_length=X.shape[2])
     else:  # fmri
-        X, y = load_fmri_data(os.path.join('data', 'fmri'))
+        X, y = ...#load_fmri_data(os.path.join('data', 'fmri'))
         model = BrainTokenizer(input_channels=X.shape[1], input_length=X.shape[2])
     
     # Load the trained model
@@ -229,7 +228,7 @@ def evaluate_tokenizer(args):
     model.eval()
     
     # Create dataloaders (we only need the test set)
-    _, _, test_loader = create_dataloader(X, y, batch_size=args.batch_size)
+    _, _, test_loader = ...#create_dataloader(X, y, batch_size=args.batch_size)
     
     # Evaluation
     test_loss = 0.0

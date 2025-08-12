@@ -9,8 +9,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 from typing import Dict, Tuple
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.rl.buffer import PPOBuffer
-from models.rl.policy.NeuralNetwork import NeuralNetwork
+from models.rl.utils.buffer import PPOBuffer
+from models.rl.utils.NeuralNetwork import NeuralNetwork
 
 class PPOAgent:
     """PPO Agent for OpenArm or humanoid control"""
