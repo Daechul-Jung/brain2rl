@@ -5,6 +5,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'models', 'rl'))
 from models.rl.practice.agents.ppo import PPOAgent 
+from models.rl.practice.agents.ppoWdiff import DiffusionPPOAgent
 from models.rl.practice.agents.sac import SACAgent
 from models.rl.utils.train import train_agent, train_agent_with_buffer
 
