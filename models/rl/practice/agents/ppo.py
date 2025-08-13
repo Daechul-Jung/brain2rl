@@ -35,7 +35,9 @@ class PPOAgent:
         self.minibatch_size = 256
         ###### Policy Gradient Hyperparameters ######
         # Networks
+        ### Policy network is actor network
         self.policy_net = NeuralNetwork(observation_dim, action_dim * 2).to(self.device)  # mean + std
+        ### Value network is critic network 
         self.value_net = NeuralNetwork(observation_dim, 1).to(self.device)
         
         # Optimizers
@@ -160,7 +162,6 @@ class PPOAgent:
         """
         Update policy and value networks after collecting trajectories in one episode
         """
-        
         # Convert memory to tensors
         ## Trajectories of agent stored in memory
         observations = torch.FloatTensor([m['obs'] for m in self.memory]).to(self.device) 
@@ -172,6 +173,7 @@ class PPOAgent:
         with torch.no_grad():
             ### While calculating returns and advantages, we do not take gradient descent
             # Calculate returns and advantages
+            ## Returns are used for value update
             returns = self._calculate_returns(rewards, dones)
             # Calculate values of observations via value network 
             values = self.value_net(observations).squeeze()
@@ -179,6 +181,7 @@ class PPOAgent:
             ## Advantages are returns - values which represent how much better the action is compared to the value of the state
             advantages = returns - values
             ## Normalize advantages
+            ## Advantages are used for policy update, so we normalize them to have mean 0 and std 1
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
         # Update for K epochs
@@ -197,7 +200,7 @@ class PPOAgent:
             dist = torch.distributions.Normal(mean, std)
             new_log_probs = dist.log_prob(actions).sum(dim=-1)
             ## should explain more mathematically
-            entropy = dist.entropy().sum(dim=-1)
+            entropy = dist.entropy().sum(dim=-1) ### What is the entropy? It is the measure of uncertainty in the action distribution
             
             ### Importance Sampling ratio
             ratio = torch.exp(new_log_probs - old_log_probs) ### ratio = new_log_probs / old_log_probs
@@ -216,7 +219,7 @@ class PPOAgent:
             
             # Value update
             new_values = self.value_net(observations).squeeze()
-            value_loss = F.mse_loss(new_values, returns)
+            value_loss = F.mse_loss(new_values, returns) ## Return is the target value for the 
             
             self.value_optimizer.zero_grad()
             value_loss.backward()
