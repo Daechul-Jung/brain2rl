@@ -17,7 +17,7 @@ Brain2RL is an end-to-end pipeline that transforms brain signal data into robot 
 1. **Classification**: Sensor data → Action classification
 2. **Tokenization**: Time series data → Tokens with Q/K/V matrices
 3. **RL Training**: Token-guided reinforcement learning
-4. **Simulation**: OpenArm Project and Humanoid v-4
+4. **Simulation**: OpenArm Project and Humanoid v-5
 
 The pipeline enables robots to learn from human brain signals, creating a direct brain-to-robot interface for complex manipulation tasks.
 
@@ -114,11 +114,11 @@ python brain2rl/cli.py tokenization \
 
 ### 3. RL Training Pipeline
 
-Trains KUKA robot control using token-guided reinforcement learning.
+Trains OpenArm control using token-guided reinforcement learning.
 
 **Features:**
 - Token-guided policy networks
-- PPO and SAC algorithm support
+- PPO, REPPO, and CoMic - Actor-Critic algorithm
 - Attention-based action selection
 - Comparison with baseline agents
 
@@ -135,12 +135,12 @@ python brain2rl/cli.py rl-training \
 
 ### 4. Simulation Pipeline
 
-Runs trained agents in realistic KUKA robot simulation with Gazebo and ROS2.
+Runs trained agents in OpenArm simulation in ROS2.
 
 **Features:**
 - Multiple manipulation tasks (reach, grasp, manipulation)
 - Performance monitoring and visualization
-- OpenArm Project
+- OpenArm 
 
 **Usage:**
 ```bash
@@ -260,16 +260,14 @@ brain2rl/
 ├── models/                        # Model architectures
 │   ├── classification/           # Action classification models 
 │   ├── tokenization/            # Tokenizing time series data for trajectories
-│   └── rl/                      # RL model for KUKA with tokens
-├── simulation/                    # Robot simulation
-│   ├── kuka_gym_environment.py  # KUKA Gym environment
-│   ├── kuka_ros_controller.py   # ROS controller
-│   └── kuka_gazebo_world.py     # Gazebo world
-├── utils/                         # Utilities
+│   └── rl/                      # RL model for OpenArm and general gym env
+├── utils/                        # Utilities
 │   ├── data_utils.py            # Data processing
 │   └── visualization.py         # Plotting tools
-├── cli.py                        # Command-line interface
-└── README.md                     # This file
+|── scripts/
+|   |──openarm/
+|      |──play_policy.py  
+└── README.md                     
 ```
 
 ### Adding New Models
