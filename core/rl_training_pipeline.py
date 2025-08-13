@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from models.rl import PPOAgent, SACAgent
-from simulation.kuka_gym_environment import KUKAGymEnvironment
+from models.rl.practice.agents.ppo import PPOAgent
+from models.rl.practice.agents.sac import SACAgent
 
 
 class TokenGuidedRL:

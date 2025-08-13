@@ -5,7 +5,7 @@ Tokenization Pipeline
 This module handles the tokenization of classified sensor data into tokens
 with Query/Key/Value matrices for reinforcement learning trajectory control.
 
-Author: Brain2RL Team
+Author: Daechul Jung
 Version: 1.0.0
 """
 
