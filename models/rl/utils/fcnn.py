@@ -26,9 +26,35 @@ class FCNN(nn.Module):
     def __init__(self, in_feature, out_feature, hidden_dim = 256, 
                  hidden_activation = 'swish', output_activation = None,
                  use_norm = True, use_output_norm = False, layers = 3,
-                 device = None):
+                 input_activation = False, device = None):
         super().__init__()
         net = []
         if layers == 1:
             net.append(normalized_activation_layer(in_feature, out_feature, use_norm = use_output_norm, 
                                                    activation= output_activation, device = device ))
+        else:
+            if input_activation:
+                net.append(get_activation(hidden_activation))
+            net.append(
+                normalized_activation_layer(
+                    in_feature, hidden_dim, use_norm=use_norm,
+                    activation=hidden_activation, device=device
+                )
+            )
+            for _ in range(layers-2):
+                net.append(
+                    normalized_activation_layer(
+                        hidden_dim, hidden_dim, use_norm=use_norm,
+                        activation=hidden_activation, device=device
+                    )
+                )
+            net.append(
+                normalized_activation_layer(
+                    hidden_dim, out_feature, use_norm=use_output_norm,
+                    activation=output_activation, device=device
+                )
+            )
+        self.net = nn.Sequential(*net)
+        
+    def forward(self, x):
+        return self.net(x)
