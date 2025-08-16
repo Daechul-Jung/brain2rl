@@ -1,6 +1,6 @@
 # Brain2RL Project
 
-A comprehensive pipeline for converting brain signals (EEG, fMRI, etc.) to reinforcement learning control of KUKA robot arms through tokenization and attention mechanisms.
+A comprehensive pipeline for converting brain signals (EEG, fMRI, etc.) to reinforcement learning control of OpenArm through tokenization and attention mechanisms.
 
 ## Table of Contents
 
