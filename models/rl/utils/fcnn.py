@@ -55,6 +55,7 @@ class FCNN(nn.Module):
                     activation=output_activation, device=device
                 )
             )
+            
         self.net = nn.Sequential(*net)
         
     def forward(self, x):

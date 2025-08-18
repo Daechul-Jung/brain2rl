@@ -8,12 +8,10 @@ import torch.nn.functional as F
 from tensordict import TensorDict
 from typing import Dict, Tuple
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.rl.utils.diffusion import *
-from models.rl.utils.NeuralNetwork import *
 from models.rl.utils.fcnn import *
 
 """
-This algorithm is Relative Entropy Pairwise Policy Optimization (RePPO) written by Claas A Voelcker, Pieter Abbeel
+This algorithm is Relative Entropy Pairwise Policy Optimization (RePPO)
 This is on-policy and actor-critic alogrithm and train robust surrogate value function and effectively use pairwise policy gradient.
 Build Maximum entropy framework and combines with a principled KL regularization, 
 Categorical Q-Learning, Appropriately normalized neural network architecture and auxilary task
@@ -22,41 +20,60 @@ According to the paper, it does not utilize the replay buffer
 """
 
 @dataclass(slots=True)
+class TrainState:
+    device: torch.device
+    obs: torch.Tensor
+    critic_obs: torch.Tensor
+    actor: Actor
+    old_actor: Actor
+    critic: Critic
+    # normalizer: EmpiricalNormalization
+    # critic_normalizer: EmpiricalNormalization
+    actor_optimizer: optim.Optimizer
+    critic_optimizer: optim.Optimizer
+    # scaler: GradScaler
+
 
 
 class RePPOAgent:
     def __init__(self, observation_dim, action_dim, num_atoms = 101, 
-                 vmin=-250, vmax=250, device='cuda'):
+                 vmin=-250, vmax=250, device='cuda',
+                 lr = 3e-4, gamma = 0.99, kl_start = 0.1, entropy_start = 0.1,
+                 lmbda = 0.95):
         super().__init__(observation_dim, action_dim, device="cuda")
         
-        self.value_net = Critic(observation_dim, action_dim, num_atoms, vmin=vmin, vmax=vmax, device=device)
+        self.critic = Critic(observation_dim, action_dim, num_atoms, 
+                             vmin=vmin, vmax=vmax, device=device)
         
-        # Actor includes entropy and kl-regularization which are subject to optimization
-        self.policy_net = Actor(observation_dim, action_dim, num_atoms, vmin=vmin, vmax=vmax, device=device)
+        # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
+        self.actor = Actor(observation_dim, action_dim, num_atoms, vmin=vmin, vmax=vmax, 
+                           kl_start=kl_start, entropy_start=entropy_start, device=device)
+        self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr)
+        self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr)
+        
+    def _actor_forward(self, observation):
+        
+        return 
 
-        self.memory = TensorDict()
-    def get_action(self, observation):
-        
-        obs_tensor = torch.FloatTensor(observation).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            action, log_prob, mean, log_std = self.policy_net(obs_tensor)
-            
-        action_info = {
-            'log_prob': log_prob.item(),
-            'mean': mean.squeeze().cpu().numpy(),
-            'std': log_std.squeeze().cpu().numpy()
-        }
-        
-        return action.squeeze().cpu().numpy(), action_info   
-    def update_actor(self, observation,):
+    def _critic_forward(self, ):
+        return 
+
+    def update_actor(self):
         return 
     
-    def update_critic(self, ):
+    def update_critic(self):
         return 
     
-    def collect(self, observation, ):
+    @torch.no_grad()
+    def collect(self, env, observation, critic_observation, num_steps =10000):
+        """
+        On-policy rollout and return (transition tensordict, final_obs, final_critic_obs, infos)
+        """
         transition = []
         info_list = []
+        
+        for _ in range(num_steps):
+            ...
         
         return 
     
