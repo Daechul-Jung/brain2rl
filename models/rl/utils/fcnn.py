@@ -124,6 +124,7 @@ class Critic(nn.Module):
         self.zero_dist = nn.Parameter(
             hl_gauss(torch.zeros(1, device=device), self.vmin, self.vmax, self.num_atoms)
         )
+        
     def forward(self, observation, action):
         # Concatenate observation and action first
         input = torch.cat([observation, action], dim = -1)
@@ -146,7 +147,8 @@ class Actor(nn.Module):
     ### Policy network 
     def __init__(self, observation_dim, action_dim, 
                  entropy_start: float, kl_start: float,
-                 hidden_dim = 256, use_norm = True, layers =3, min_std = 0.1, device = None):
+                 hidden_dim = 256, use_norm = True, 
+                 layers =3, min_std = 0.1, device = None):
         super().__init__()
         self.model = FCNN(
             in_feature=observation_dim,
@@ -179,3 +181,34 @@ class Actor(nn.Module):
             pi, [torch.distributions.TanhTransform()]
         )
         return transformed_pi, torch.tanh(mean), torch.exp(self.log_temp), torch.exp(self.log_lagrange)
+    
+def hl_gauss(input, vmin, vmax, num_atoms):
+    """
+
+    Args:
+        input (_type_): _description_
+        vmin (_type_): _description_
+        vmax (_type_): _description_
+        num_atoms (_type_): _description_
+    """
+    x = torch.clip(input, vmin, max = vmax)
+    bin_width = (vmax - vmin) / (num_atoms - 1)
+    sigma_to_final_sigma_ratio = 0.75
+    support = torch.linspace(
+        vmin - bin_width/2,
+        vmax + bin_width/2,
+        num_atoms + 1,
+        device = input.device)
+    sigma = bin_width * sigma_to_final_sigma_ratio
+    cdf_evals = torch.erf(
+        (support.unsqueeze(0) - x).squeeze() /
+        (torch.sqrt(torch.tensor(2.0)) * sigma + 1e-6)
+    )
+    
+    z = cdf_evals[..., -1] - cdf_evals[..., 0] ## What does this mean? 
+    
+    target_probs = cdf_evals[..., 1:] - cdf_evals[..., :-1]
+    target_probs = (target_probs / (z.unsqueeze(-1) + 1e-6)).reshape(
+        *input.shape[:-1], num_atoms
+    )
+    return target_probs

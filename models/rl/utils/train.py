@@ -1,4 +1,8 @@
 from models.rl.practice.agents.ppo import *
+from models.rl.practice.agents.reppo import *
+
+def train_reppo(env, agent, num_episodes, max_steps = 1000, render=False):
+    return 
 
 def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
     episode_rewards = []
