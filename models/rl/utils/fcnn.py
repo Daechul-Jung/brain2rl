@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn 
 from torch.distributions import constraints
+from torch.distributions.transforms import Transform
 from torch.distributions import Normal
 
 def get_activation(name):
@@ -58,3 +59,123 @@ class FCNN(nn.Module):
         
     def forward(self, x):
         return self.net(x)
+    
+
+class Critic(nn.Module):
+    ## Value network
+    def __init__(self,
+        observation_dim,
+        action_dim, 
+        num_atoms: int,
+        vmin: float,
+        vmax: float,
+        hidden_dim = 256,
+        use_norm = True,
+        use_encoder_norm = False,
+        encoder_layers = 1,
+        head_layers = 1,
+        pred_layers = 1,
+        device = None
+    ):
+        super().__init__()
+        self.num_atoms = num_atoms
+        self.vmin = vmin
+        self.vmax = vmax
+        self.hidden_dim = hidden_dim
+        self.feature_module = FCNN(
+            in_feature=observation_dim + action_dim,
+            out_feature=hidden_dim,
+            hidden_dim=hidden_dim,
+            hidden_activation='swish',
+            output_activation=None,
+            use_norm=use_norm,
+            use_output_norm=use_encoder_norm,
+            layers=encoder_layers,
+            device=device
+        )
+        self.critic_module = FCNN(
+            in_feature=hidden_dim,
+            out_feature=num_atoms,
+            hidden_dim=hidden_dim,
+            hidden_activation='swish',
+            output_activation=None,
+            use_norm=use_norm,
+            use_output_norm=False,
+            input_activation=True,
+            layers = head_layers,
+            device = device
+        )
+        self.pred_module = FCNN(
+            in_feature=hidden_dim,
+            out_feature=hidden_dim,
+            hidden_dim=hidden_dim,
+            hidden_activation='swish',
+            output_activation=None,
+            use_norm=use_norm,
+            input_activation=True,
+            use_output_norm=False,
+            layers=pred_layers,
+            device=device
+        )
+
+        self.values = torch.linspace(vmin, vmax, num_atoms, device=device, dtype = torch.float32)
+        zeros = hl_gauss(torch.zeros(1, device=device), self.vmin, self.vmax, self.num_atoms)
+        zeros.requires_grad = True
+        self.zero_dist = nn.Parameter(
+            hl_gauss(torch.zeros(1, device=device), self.vmin, self.vmax, self.num_atoms)
+        )
+    def forward(self, observation, action):
+        # Concatenate observation and action first
+        input = torch.cat([observation, action], dim = -1)
+
+        ## Learn features via feature network (Encoding)
+        features = self.feature_module(input)
+        ## Do prediction through prediction module
+        next_pred = self.pred_module(features)
+
+        ## Getting logit through critic module
+        logit = self.critic_module(features)
+
+        ## Concatenate value
+        value_cat = torch.softmax(logit, dim = -1)
+        value = value_cat @ self.values
+
+        return value, logit, next_pred, features
+    
+class Actor(nn.Module):
+    ### Policy network 
+    def __init__(self, observation_dim, action_dim, 
+                 entropy_start: float, kl_start: float,
+                 hidden_dim = 256, use_norm = True, layers =3, min_std = 0.1, device = None):
+        super().__init__()
+        self.model = FCNN(
+            in_feature=observation_dim,
+            out_feature= 2 * action_dim,
+            hidden_dim=hidden_dim,
+            hidden_activation='swish',
+            output_activation=None,
+            use_norm=use_norm,
+            use_output_norm=False, 
+            layers = layers,
+            device=device
+        )
+        ## Setting entropy as parameter for update
+        self.log_temp = nn.Parameter(
+            torch.log(torch.tensor(entropy_start, device=device, dtype = torch.float32))
+        )
+        ## Setting kl-regulation for lagrange as parameter for update
+        self.log_lagrange = nn.Parameter(
+            torch.log(torch.tensor(kl_start, device = device, dtype = torch.float32))
+        )
+
+        self.min_std = min_std
+
+    def forward(self, observation):
+        x = self.model(observation)
+        mean, log_std = torch.split(x, x.shape[-1]//2, dim=-1)
+        std = torch.exp(log_std) + self.min_std
+        pi = Normal(mean, std, validate_args=False)
+        transformed_pi = torch.distributions.TransformedDistribution(
+            pi, [torch.distributions.TanhTransform()]
+        )
+        return transformed_pi, torch.tanh(mean), torch.exp(self.log_temp), torch.exp(self.log_lagrange)

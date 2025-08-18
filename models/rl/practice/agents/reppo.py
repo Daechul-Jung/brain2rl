@@ -9,6 +9,7 @@ from typing import Dict, Tuple
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.rl.utils.diffusion import *
 from models.rl.utils.NeuralNetwork import *
+from models.rl.utils.fcnn import *
 from models.rl.practice.agents.ppo import PPOAgent
 
 """
