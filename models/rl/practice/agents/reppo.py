@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from dataclasses import dataclass
 import torch.optim as optim
+import copy
 import torch.nn.functional as F
 from tensordict import TensorDict
 from typing import Dict, Tuple
@@ -44,17 +45,32 @@ class RePPOAgent:
         
         self.critic = Critic(observation_dim, action_dim, num_atoms, 
                              vmin=vmin, vmax=vmax, device=device)
-        
+        self.device = device
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim, action_dim, num_atoms, vmin=vmin, vmax=vmax, 
                            kl_start=kl_start, entropy_start=entropy_start, device=device)
+        self.old_actor = copy.deepcopy(self.actor).to(self.device)
         self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr)
         self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr)
         
     def _actor_forward(self, observation):
+        """
+        Forward pass for the actor network
         
-        return 
-
+        Returns:
+            pi: Action probabilities with transformed distributions
+            mean: Mean of the action distribution
+            log_temp: Log of entropy temperature
+            log_lagrange: Log of KL regularization parameter
+        """
+        pi, mean, log_temp, log_lagrange = self.actor(observation)
+        return pi, mean, log_temp, log_lagrange
+    
+    def _old_actor_forward(self, observation):
+        old_pi, _, _, _ = self.old_actor(observation)
+        return old_pi
+    
+    
     def _critic_forward(self, ):
         return 
 
