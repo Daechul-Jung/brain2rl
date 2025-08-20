@@ -55,7 +55,6 @@ def main():
     agent = PPOAgent(state_dim, action_dim) if args.algo == 'ppo' else SACAgent(state_dim, action_dim)
     if args.algo == "reppo":
         agent = RePPOAgent(observation_dim=state_dim, action_dim=action_dim)
-    print(f"\n--- Training for {args.episodes} episodes ---")
     if args.buffer == 'no':
         rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render=args.render)
     elif args.algo == 'reppo':
