@@ -145,12 +145,7 @@ Runs trained agents in OpenArm simulation in ROS2.
 **Usage:**
 ```bash
 # Run simulation
-python brain2rl/cli.py simulation \
-    --model-path models/rl_agent.pth \
-    --token-data results/tokens.npz \
-    --episodes 10 \
-    --visualize \
-    --task reach
+ ########### Need to rewrite ############
 ```
 
 ## Usage Examples
@@ -165,7 +160,6 @@ python brain2rl/cli.py simulation \
 python brain2rl/cli.py full \
     --data-path data/eeg_motor_imagery.npz \
     --output-dir results/eeg_experiment/ \
-    --config config/eeg_config.json
 
 # 3. Results will be saved in results/eeg_experiment/
 ```
@@ -222,31 +216,6 @@ python brain2rl/cli.py simulation \
     --save-data results/simulation_data.npz
 ```
 
-### Example 3: Development and Testing
-
-```bash
-# Generate test data
-python brain2rl/cli.py generate-data \
-    --n-samples 500 \
-    --n-channels 16 \
-    --n-timesteps 256 \
-    --output-path data/test_data.npz
-
-# Quick pipeline test (reduced parameters)
-python brain2rl/cli.py full \
-    --data-path data/test_data.npz \
-    --output-dir test_results/ \
-    --device cpu
-
-# Mock simulation (no ROS2/Gazebo required)
-python brain2rl/cli.py simulation \
-    --model-path test_results/full_pipeline_results.pth \
-    --episodes 3 \
-    --mock-mode \
-    --use-gazebo false \
-    --use-ros false
-```
-
 ### Project Structure
 
 ```
@@ -261,12 +230,11 @@ brain2rl/
 │   ├── classification/           # Action classification models 
 │   ├── tokenization/            # Tokenizing time series data for trajectories
 │   └── rl/                      # RL model for OpenArm and general gym env
-├── utils/                        # Utilities
-│   ├── data_utils.py            # Data processing
-│   └── visualization.py         # Plotting tools
+│        |- agents               # RL Agents Collection
+│        └─ utils                # Colection of Neural network and Actor-Critic network
 |── scripts/
-|   |──openarm/
-|      |──play_policy.py  
+|   └─openarm/
+|      └─play_policy.py  
 └── README.md                     
 ```
 
@@ -274,21 +242,7 @@ brain2rl/
 
 1. **Classification Models**: Add to `brain2rl/models/classification/`
 2. **Tokenization Models**: Add to `brain2rl/models/tokenization/`
-3. **RL Algorithms**: Add to `brain2rl/models/rl/`
-
-### Testing
-
-```bash
-# Run unit tests
-python -m pytest tests/
-
-# Test individual components
-python brain2rl/core/classification_pipeline.py
-python brain2rl/core/tokenization_pipeline.py
-python brain2rl/core/rl_training_pipeline.py
-python brain2rl/core/simulation_pipeline.py
-```
-
+3. **RL Algorithms**: Add to `brain2rl/models/rl/practice/agents`
 
 ## License
 
@@ -315,4 +269,4 @@ If you use Brain2RL in your research, please cite:
 
 ---
 
-**Brain2RL** - Bridging minds and machines through intelligent robotics. 
+**Brain2RL** - Bridging brain signal and machines through intelligent robotics. 
