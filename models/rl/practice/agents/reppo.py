@@ -154,7 +154,7 @@ class RePPOAgent:
         ce = -(q_target_dist * log_probs).sum(-1)
 
         emb_loss = F.mse_loss(next_pred, target_next_feature, reduction=None)
-        loss = (trunc_mask * ( ce +  self.aux_loss_mult * emb_loss)).mean()
+        loss = (trunc_mask * (ce +  self.aux_loss_mult * emb_loss)).mean()
         self.critic_optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)    
@@ -192,20 +192,44 @@ class RePPOAgent:
         actor_obj = -q_scalar + log_temp.detach() * log_pi
         ## KL(new||old) using old policy sample 
         with torch.no_grad():
+            # Sample from the old distribution
             old_pi = self._old_actor_dist(observation)
             old_sample = old_pi.sample((16, )).clamp(-1 + 1e-6, 1 - 1e-6)
             #### Should take a look the shape and how it looks like 
-            old_log_prob = old_pi.log_prob(old_sample).sum(-1)
-        
+            old_log_prob = old_pi.log_prob(old_sample).sum(-1) # Estimate the log probability with the given old distribuiton
+        # Estimate the old log probability from the given new action distribution
         new_log_prob = pi.log_prob(old_sample).sum(-1)
         kl_est = (old_log_prob - new_log_prob).mean(0)
         
         kl_bound = self.kl_bound
-        clipped = torch.where(kl_est < kl_bound, actor )
-        return 
+        clipped = torch.where(kl_est < kl_bound, actor_obj, kl_est * log_lagrange)
+
+        ### entropy temperature and KL-Lagrangian terms and loss 
+        target_entropy = observation.new_tensor(observation.shape[-1])
+
+        entropy_loss = (target_entropy + entropy).detach().mean() * log_temp
+
+        lagrangian = - log_lagrange * (kl_est - kl_bound).mean().detach()
+        total_loss = clipped.mean() + entropy_loss + lagrangian
+        self.actor_optimizer.zero_grad(set_to_none=True)
+
+        total_loss.backward()
+        nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
+
+        self.actor_optimizer.step()
+        return {
+            "actor_loss": total_loss.detach(),
+            "kl": kl_est.mean().detach(),
+            "entropy": entropy.mean().detach(),
+            "temperature": log_temp.detach(),
+            "lagrangian": log_lagrange.detach(),
+            "entropy_loss": entropy_loss.detach(),
+            "lagrangian_loss": lagrangian.detach(),
+        }
+
     
     @torch.no_grad()
-    def collect(self, env, observation, critic_observation, num_steps =10000):
+    def collect(self, env, observation, critic_observation, num_steps = 10000):
         """
         On-policy rollout and return (transition tensordict, final_obs, final_critic_obs, infos)
         """
