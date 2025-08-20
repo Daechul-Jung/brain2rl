@@ -73,7 +73,7 @@ def main():
 
     agent2 = PPOAgent(obs_dim, act_dim, device="cuda")
     agent2.load("ppo_humanoid.pth")
-    render_agent(agent2, args.env, episodes=args.episodes)
+    render_agent(agent, args.env, episodes=args.episodes)
 
 
 
