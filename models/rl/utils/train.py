@@ -33,7 +33,7 @@ def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True)
     return ep_returns, ep_lengths
 
 
-def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 256, num_epoch = 1, 
+def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1000, num_epoch = 1, 
                 num_mini_batch = 4, logger: Optional[callable] = None, num_eval = 5, evaluate_func = None,render=False):
     
     device = agent.device
