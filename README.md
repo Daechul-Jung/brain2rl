@@ -45,9 +45,8 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 - **simulation**: OpenArm Project
 - **Flexible pipeline**: Run individual components or complete end-to-end workflow
 
-## Installation
 
-### Prerequisites
+### Installation Prerequisites
 
 - **Operating System**: Ubuntu 22.04
 - **Python**: 3.8 or higher
@@ -135,7 +134,7 @@ python brain2rl/cli.py rl-training \
 
 ### 4. Simulation Pipeline
 
-Runs trained agents in OpenArm simulation in ROS2.
+Runs trained agents in OpenArm simulation in ROS2 with Gazebo.
 
 **Features:**
 - Multiple manipulation tasks (reach, grasp, manipulation)
@@ -230,8 +229,8 @@ brain2rl/
 │   ├── classification/           # Action classification models 
 │   ├── tokenization/            # Tokenizing time series data for trajectories
 │   └── rl/                      # RL model for OpenArm and general gym env
-│        |- agents               # RL Agents Collection
-│        └─ utils                # Colection of Neural network and Actor-Critic network
+│       ├── agents               # RL Agents Collection
+│       └── utils                # Colection of Neural network and Actor-Critic network
 |── scripts/
 |   └─openarm/
 |      └─play_policy.py  
