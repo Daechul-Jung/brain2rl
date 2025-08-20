@@ -84,6 +84,7 @@ class RePPOAgent:
         self.device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
         self.aux_loss_mult = 1.0
         self.max_grad_norm = 1.0
+        self.kl_bound = 0.02
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim=observation_dim,
                             action_dim=action_dim, 
@@ -111,7 +112,7 @@ class RePPOAgent:
         pi, mean, log_temp, log_lagrange = self.actor(observation)
         return pi, mean, log_temp, log_lagrange
     
-    def _old_actor_forward(self, observation):
+    def _old_actor_dist(self, observation):
         """
         Based on the observation with old actor network, getting old pi distribution
         """
@@ -131,9 +132,9 @@ class RePPOAgent:
 
         return value, logits, next_pred, features 
 
-    def update_actor(self, batch: TensorDict):
+    def update_critic(self, batch: TensorDict):
         """
-        Update actor network 
+        Update critic network in training mode
         """
         self.critic.train()
 
@@ -157,9 +158,50 @@ class RePPOAgent:
         self.critic_optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)    
-        return 
+        self.critic_optimizer.step()
+
+        return {
+            "qf_loss": loss.detach(),
+            "qf_mean": targets.mean().detach(),
+            "qf_max": targets.max().detach(),
+            "qf_min": targets.min().detach(),
+            "embedding_loss": emb_loss.detach()
+        }
     
-    def update_critic(self):
+    def update_actor(self, batch: TensorDict):
+        """
+        Update actor network in training mode
+        """
+        self.actor.train()
+
+        observation = batch['observation']
+        observation_critic = batch['critic_observation']
+        ## Get action distribution, mean, entropy, and kl-regulation from actor network 
+        pi, mean, log_temp, log_lagrange = self._actor_forward(observation=observation) 
+        # Then resample the action from the distribution(Transformed)
+        actions = pi.rsample() # Shape: (Batch, Action)
+
+        actions_for_log = torch.clamp(actions, -1 + 1e-6, 1 - 1e-6) 
+
+        log_pi = pi.log_prob(actions_for_log).sum(-1)
+
+        entropy = -log_pi
+
+        q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
+        # Actor objective 
+        actor_obj = -q_scalar + log_temp.detach() * log_pi
+        ## KL(new||old) using old policy sample 
+        with torch.no_grad():
+            old_pi = self._old_actor_dist(observation)
+            old_sample = old_pi.sample((16, )).clamp(-1 + 1e-6, 1 - 1e-6)
+            #### Should take a look the shape and how it looks like 
+            old_log_prob = old_pi.log_prob(old_sample).sum(-1)
+        
+        new_log_prob = pi.log_prob(old_sample).sum(-1)
+        kl_est = (old_log_prob - new_log_prob).mean(0)
+        
+        kl_bound = self.kl_bound
+        clipped = torch.where(kl_est < kl_bound, actor )
         return 
     
     @torch.no_grad()
