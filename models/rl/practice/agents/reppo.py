@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from tensordict import TensorDict
 from typing import Dict, Tuple
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.rl.utils.fcnn import *
+from models.rl.utils.reppo_network import *
 
 """
 This algorithm is Relative Entropy Pairwise Policy Optimization (RePPO)
@@ -171,6 +171,8 @@ class RePPOAgent:
     def update_actor(self, batch: TensorDict):
         """
         Update actor network in training mode
+
+        The main difference between actor and critic network is in actor network, the agent got observation and observation critic from batch
         """
         self.actor.train()
 
