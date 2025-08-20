@@ -6,8 +6,9 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'models', 'rl'))
 from models.rl.practice.agents.ppo import PPOAgent 
 from models.rl.practice.agents.ppoWdiff import DiffusionPPOAgent
+from models.rl.practice.agents.reppo import *
 from models.rl.practice.agents.sac import SACAgent
-from models.rl.utils.train import train_agent, train_agent_with_buffer
+from models.rl.utils.train import train_agent, train_agent_with_buffer, train_reppo
 
 
 
@@ -52,10 +53,14 @@ def main():
     action_dim = act_space.shape[0]
 
     agent = PPOAgent(state_dim, action_dim) if args.algo == 'ppo' else SACAgent(state_dim, action_dim)
-
+    if args.algo == "reppo":
+        agent = RePPOAgent(observation_dim=state_dim, action_dim=action_dim)
     print(f"\n--- Training for {args.episodes} episodes ---")
     if args.buffer == 'no':
         rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render=args.render)
+    elif args.algo == 'reppo':
+        rewards = train_reppo(env, agent, total_steps=10000)
+   
     else :
         rewards = train_agent_with_buffer(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")

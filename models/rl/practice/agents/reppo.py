@@ -293,6 +293,7 @@ class RePPOAgent:
                     'actions': action,
                     'log_prob': pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1),
                     'rewards': shaped_reward.unsqueeze(-1),
+                    'raw_rewards' : rewards.unsqueeze(-1),
                     'next_embedding': next_features, ### Target for aux loss is the next state encoder features
                     'next_values': next_value.unsqueeze(-1),
                     'dones': _to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1),

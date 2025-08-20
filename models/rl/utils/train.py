@@ -3,6 +3,35 @@ import gymnasium as gym
 from models.rl.practice.agents.reppo import *
 from typing import Optional
 
+######################## Training REPPO ###################################
+def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True):
+    """
+    Aggregate episode returns/lengths from a time-major rollout.
+    If 'raw_rewards' is present it uses that; otherwise falls back to shaped 'rewards'.
+    """
+    key = "raw_rewards" if prefer_raw and "raw_rewards" in transition.keys(True) else "rewards"
+    rewards = transition[key].squeeze(-1)           # (T, N)
+    dones   = transition["dones"].squeeze(-1).bool()
+    truncs  = transition["truncations"].squeeze(-1).bool()
+    finished = dones | truncs
+
+    T, N = rewards.shape
+    running_ret = torch.zeros(N, device=rewards.device)
+    running_len = torch.zeros(N, device=rewards.device)
+    ep_returns, ep_lengths = [], []
+
+    for t in range(T):
+        running_ret += rewards[t]
+        running_len += 1
+        fin = finished[t]
+        if fin.any():
+            ep_returns += running_ret[fin].tolist()
+            ep_lengths += running_len[fin].tolist()
+            running_ret[fin] = 0.0
+            running_len[fin] = 0.0
+
+    return ep_returns, ep_lengths
+
 
 def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 256, num_epoch = 1, 
                 num_mini_batch = 4, logger: Optional[callable] = None, num_eval = 5, evaluate_func = None,render=False):
@@ -21,10 +50,11 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 2
     critic_observation = None 
     
     global_update = 0 
-    
+    all_episode_returns = []
     while global_update < total_updates:
         transition, observation, critic_observation, infos = agent.collect(env, observation, critic_observation, num_step)
-        
+        ep_returns, ep_lengths = _episode_stats_from_rollout(transition, prefer_raw=True)
+        all_episode_returns.extend(ep_returns)
         gves = compute_gve(
             rewards=transition['rewards'],
             dones= transition['dones'],
@@ -81,7 +111,10 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 2
 
         global_update += 1
 
-    return agent
+    return all_episode_returns
+
+###############################################################################################
+
 
 def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
     episode_rewards = []
