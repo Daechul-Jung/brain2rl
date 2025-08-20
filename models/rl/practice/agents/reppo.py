@@ -312,9 +312,7 @@ class RePPOAgent:
         return transition, observation, critic_observation, info_list
     
     @torch.no_grad()
-    def evaluate(
-        self,
-        env,
+    def evaluate(self, env,
         episodes: int = 5,
         stochastic: bool = False,
         max_steps: int | None = None,
