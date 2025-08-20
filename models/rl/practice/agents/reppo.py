@@ -89,6 +89,8 @@ class RePPOAgent:
         self.vmin = vmin
         self.vmax = vmax
         self.gamma = gamma
+        self.lmbda = lmbda
+        
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
@@ -184,7 +186,8 @@ class RePPOAgent:
         """
         Update actor network in training mode
 
-        The main difference between actor and critic network is in actor network, the agent got observation and observation critic from batch
+        The main difference between actor and critic network is in actor network, 
+        the agent got observation and observation critic from batch
         """
         self.actor.train()
 
@@ -293,7 +296,7 @@ class RePPOAgent:
                     'next_embedding': next_features, ### Target for aux loss is the next state encoder features
                     'next_values': next_value.unsqueeze(-1),
                     'dones': _to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1),
-                    'truncation': _to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1)
+                    'truncations': _to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1)
                 },
                 batch_size=(N, )
             )
@@ -307,11 +310,128 @@ class RePPOAgent:
             
         return transition, observation, critic_observation, info_list
     
-    def evaluate(self,):
-        return 
+    @torch.no_grad()
+    def evaluate(
+        self,
+        env,
+        episodes: int = 5,
+        stochastic: bool = False,
+        max_steps: int | None = None,
+    ):
+        """
+        Roll out the current policy on `env` and return average/individual episode returns and lengths.
+        Uses *environment reward* (not shaped reward).
+        """
+        self.actor.eval()
+        device = self.device
+
+        returns = []
+        lengths = []
+
+        for _ in range(episodes):
+            reset_ret = env.reset()
+            obs = reset_ret[0] if isinstance(reset_ret, tuple) else reset_ret
+            obs = torch.as_tensor(obs, device=device, dtype=torch.float32)
+            ep_ret = 0.0
+            ep_len = 0
+
+            horizon = max_steps or getattr(env, "max_episode_steps", 1000)
+
+            for _t in range(horizon):
+                pi, det, _, _ = self._actor_forward(obs.unsqueeze(0))
+                if stochastic:
+                    action = pi.sample()
+                else:
+                    action = det.unsqueeze(0)  # deterministic = tanh(mean)
+
+                step_ret = env.step(action)
+                next_obs, reward, done, trunc, info = (
+                    step_ret if len(step_ret) == 5
+                    else (*step_ret, False)  # gym classic (no truncation flag)
+                )
+                ep_ret += float(torch.as_tensor(reward).mean().item())
+                ep_len += 1
+
+                if bool(done) or bool(trunc):
+                    break
+
+                obs = torch.as_tensor(next_obs, device=device, dtype=torch.float32)
+
+            returns.append(ep_ret)
+            lengths.append(ep_len)
+
+        self.actor.train()
+        avg_ret = float(torch.tensor(returns).mean().item())
+        avg_len = float(torch.tensor(lengths).float().mean().item())
+        return {
+            "avg_return": avg_ret,
+            "avg_length": avg_len,
+            "returns": returns,
+            "lengths": lengths,
+        }
     
-    def load(self):
-        return 
-    
-    def save(self, ):
-        return 
+    def save(
+        self,
+        file_path: str,
+        step: int | None = None,
+        include_optim: bool = True,
+        extra: dict | None = None,
+    ):
+        """
+        Save actor/critic and (optionally) optimizers. Includes temperature/lagrange via actor state_dict.
+        """
+        ckpt = {
+            "actor": self.actor.state_dict(),
+            "critic": self.critic.state_dict(),
+            "step": step,
+        }
+        if include_optim:
+            ckpt.update(
+                {
+                    "actor_optimizer": self.actor_optimizer.state_dict(),
+                    "critic_optimizer": self.critic_optimizer.state_dict(),
+                }
+            )
+        if extra:
+            ckpt.update(extra)
+
+        os.makedirs(os.path.dirname(file_path) or ".", exist_ok=True)
+        torch.save(ckpt, file_path)
+
+    def load(self, file_path: str, strict: bool = True, load_optim: bool = True):
+        """
+        Load actor/critic (and optimizers if present). Supports multiple key names for compatibility.
+        """
+        ckpt = torch.load(file_path, map_location=self.device)
+
+        def _first_key(d, *names):
+            for n in names:
+                if n in d:
+                    return n
+            return None
+
+        # Actor
+        k = _first_key(ckpt, "actor", "actor_network", "actor_state_dict")
+        if k is None:
+            raise KeyError("No actor state_dict found in checkpoint.")
+        self.actor.load_state_dict(ckpt[k], strict=strict)
+
+        # Critic
+        k = _first_key(ckpt, "critic", "critic_network", "critic_state_dict")
+        if k is None:
+            raise KeyError("No critic state_dict found in checkpoint.")
+        self.critic.load_state_dict(ckpt[k], strict=strict)
+
+        # Optimizers (optional)
+        if load_optim:
+            if "actor_optimizer" in ckpt:
+                self.actor_optimizer.load_state_dict(ckpt["actor_optimizer"])
+            if "critic_optimizer" in ckpt:
+                self.critic_optimizer.load_state_dict(ckpt["critic_optimizer"])
+
+        # Keep old_actor in sync with loaded actor
+        with torch.no_grad():
+            for p, q in zip(self.actor.parameters(), self.old_actor.parameters()):
+                q.data.copy_(p.data)
+
+        return ckpt.get("step", None)

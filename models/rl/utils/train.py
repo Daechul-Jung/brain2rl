@@ -1,8 +1,87 @@
 from models.rl.practice.agents.ppo import *
+import gymnasium as gym
 from models.rl.practice.agents.reppo import *
+from typing import Optional
 
-def train_reppo(env, agent, num_episodes, max_steps = 1000, render=False):
-    return 
+
+def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 256, num_epoch = 1, 
+                num_mini_batch = 4, logger: Optional[callable] = None, num_eval = 5, evaluate_func = None,render=False):
+    
+    device = agent.device
+    N_envs = getattr(env, 'num_envs', 1)
+    
+    batch_size = (N_envs * num_step) // num_mini_batch
+    
+    total_updates = total_steps // (N_envs * num_step) + 1
+    eval_interval = max(1, total_updates // (max(1, num_eval)))
+    
+    reset_return = env.reset()
+    observation  = reset_return[0] if isinstance(reset_return, tuple) else reset_return
+    
+    critic_observation = None 
+    
+    global_update = 0 
+    
+    while global_update < total_updates:
+        transition, observation, critic_observation, infos = agent.collect(env, observation, critic_observation, num_step)
+        
+        gves = compute_gve(
+            rewards=transition['rewards'],
+            dones= transition['dones'],
+            truncations=transition['truncations'],
+            next_values=transition['next_values'],
+            gamma=agent.gamma,
+            lmbda=agent.lmbda
+        )
+        data = TensorDict(
+            {
+                'observation': transition['observation'],
+                'critic_observation': transition['critic_observation'],
+                'actions': transition['actions'],
+                'rewards': transition['rewards'],
+                'next_embedding': transition['next_embedding'],
+                'next_values': transition['next_values'],
+                'dones': transition['dones'],
+                'truncations': transition['truncations'],
+                'gve': torch.stack(gves, dim= 0)
+            },
+            batch_size=(num_step, N_envs),
+            device=device
+        ).float().flatten(0, 1).detach() ### Shape would be (T*N , ...)
+        
+        ## SGD
+        for _ in range(num_epoch):
+            index = torch.randperm(num_step * N_envs, device=device)
+            data_shuffle = data[index].contiguous()
+            for mini_batch in range(num_mini_batch):
+                batch_data = data_shuffle[mini_batch * batch_size: (mini_batch + 1) * batch_size]
+                critic_logs = agent.update_critic(batch_data)
+                actor_logs = agent.update_actor(batch_data)
+                logs = {**{f"critic/{k}": v for k, v in critic_logs.items()},
+                        **{f"actor/{k}":  v for k, v in actor_logs.items()}}
+                
+        ## syncronize old actor
+        with torch.no_grad():
+            for p,q in zip(agent.old_actor.parameters(), agent.old_actor.parameters()):
+                q.data.copy_(data)
+                
+        if evaluate_func and (global_update % eval_interval == 0):
+            eval_metrics = evaluate_func(agent) or {}
+            if logger:
+                logger(
+                    step=global_update * N_envs * num_step,
+                    **{f"eval/{k}": (float(v) if torch.is_tensor(v) else v) for k, v in eval_metrics.items()},
+                    **{k: (float(val) if torch.is_tensor(val) else val) for k, val in logs.items()},
+                )
+        elif logger:
+            logger(
+                step=global_update * N_envs * num_step,
+                **{k: (float(val) if torch.is_tensor(val) else val) for k, val in logs.items()},
+            )
+
+        global_update += 1
+
+    return agent
 
 def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
     episode_rewards = []
@@ -34,6 +113,7 @@ def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
         agent.update()
         episode_rewards.append(episode_reward)
         print(f"Episode {ep+1}/{num_episodes}, Reward: {episode_reward:.2f}")
+        
     return episode_rewards
 
 def train_agent_with_buffer(env, agent:PPOAgent, num_episodes:int, max_steps = 1000, render=False):
@@ -99,6 +179,4 @@ def train_agent_with_buffer(env, agent:PPOAgent, num_episodes:int, max_steps = 1
                 print(f"Update: policy_loss={info['policy_loss']:.4f}, value_loss={info['value_loss']:.4f}")
             # Clear buffer for next iteration
             agent.buffer.clear()
-
-
         return episode_rewards
