@@ -5,9 +5,10 @@ import torch.nn as nn
 from dataclasses import dataclass
 import torch.optim as optim
 import copy
+import gymnasium as gym
 import torch.nn.functional as F
 from tensordict import TensorDict
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.rl.utils.reppo_network import *
 
@@ -25,6 +26,9 @@ def _env_shape(env):
     max_steps = getattr(env, "max_episode_steps", 5000)
     asymmetric = getattr(env, "asymmetric_obs", False )
     return num_envs, max_steps, asymmetric
+
+def _to_tensor(input, device):
+    return 
 
 def _split_step_return(returns):
     if len(returns) == 5:
@@ -78,6 +82,7 @@ class RePPOAgent:
                              vmin=vmin, vmax=vmax, device=device)
         self.vmin = vmin
         self.vmax = vmax
+        self.gamma = gamma
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
@@ -231,16 +236,43 @@ class RePPOAgent:
 
     
     @torch.no_grad()
-    def collect(self, env, observation, critic_observation, num_steps = 10000):
+    def collect(self, env: gym.Env, observation: Optional[torch.Tensor], critic_observation: Optional[torch.Tensor], num_steps = 10000):
         """
         On-policy rollout and return (transition tensordict, final_obs, final_critic_obs, infos)
         """
-        transition = []
-        info_list = []
-        
+        N, _, asymmetric = _env_shape(env)
+
+        ## initial reset
+        if observation is None:
+            reset_return = env.reset()
+            observation = reset_return[0] if isinstance(reset_return, tuple) else reset_return
+
+        if critic_observation is None:
+            critic_observation = observation
+
+        observation = _to_tensor(observation, self.device)
+        critic_observation = _to_tensor(critic_observation, self.device)
+
         for _ in range(num_steps):
-            ...
-        
+            pi, _, log_temp, log_lagrange = self._actor_forward(observation)
+            action = pi.sample()
+            step_return = env.step(action)
+
+            next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
+            next_critic_observation = next_observation
+
+            _next_observation = _to_tensor(next_observation, self.device)
+            _next_critic_obs = _to_tensor(next_critic_observation, self.device)
+
+            next_pi, _, next_log_temp, next_log_lagran = self._actor_forward(_next_observation)
+
+            next_action = next_pi.sample()
+            next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
+
+            next_value, _, next_pred_unused, next_features = self._critic_forward(next_critic_observation, next_action)
+            rewards = _to_tensor(rewards, self.device).view(-1)
+
+            shaped_reward = rewards - self.gamma
         return 
     
     def evaluate(self,):
