@@ -42,6 +42,7 @@ class FCNN(nn.Module):
                     activation=hidden_activation, device=device
                 )
             )
+            
             for _ in range(layers-2):
                 net.append(
                     normalized_activation_layer(
@@ -49,6 +50,7 @@ class FCNN(nn.Module):
                         activation=hidden_activation, device=device
                     )
                 )
+                
             net.append(
                 normalized_activation_layer(
                     hidden_dim, out_feature, use_norm=use_output_norm,
@@ -83,6 +85,7 @@ class Critic(nn.Module):
         self.vmin = vmin
         self.vmax = vmax
         self.hidden_dim = hidden_dim
+        # Feature module network for getting features from the observation and action
         self.feature_module = FCNN(
             in_feature=observation_dim + action_dim,
             out_feature=hidden_dim,
@@ -94,6 +97,7 @@ class Critic(nn.Module):
             layers=encoder_layers,
             device=device
         )
+        ## Critic module network for getting logit from feature which is calculated from feature module 
         self.critic_module = FCNN(
             in_feature=hidden_dim,
             out_feature=num_atoms,
@@ -106,6 +110,7 @@ class Critic(nn.Module):
             layers = head_layers,
             device = device
         )
+        ## Prediction module network for getting next feature
         self.pred_module = FCNN(
             in_feature=hidden_dim,
             out_feature=hidden_dim,
@@ -127,14 +132,12 @@ class Critic(nn.Module):
         )
         
     def forward(self, observation, action):
-        # Concatenate observation and action first
+        # Concatenate observation and action first over last dimension. Dimension shape is (Batch, observation or action dim)
         input = torch.cat([observation, action], dim = -1)
-
         ## Learn features via feature network (Encoding)
         features = self.feature_module(input)
         ## Do prediction through prediction module
-        next_pred = self.pred_module(features)
-
+        next_pred_feature = self.pred_module(features)
         ## Getting logit through critic module
         logit = self.critic_module(features)
 
@@ -142,7 +145,7 @@ class Critic(nn.Module):
         value_cat = torch.softmax(logit, dim = -1)
         value = value_cat @ self.values
 
-        return value, logit, next_pred, features
+        return value, logit, next_pred_feature, features
     
 class Actor(nn.Module):
     ### Policy network 
@@ -151,6 +154,7 @@ class Actor(nn.Module):
                  hidden_dim = 256, use_norm = True, 
                  layers =3, min_std = 0.1, device = None):
         super().__init__()
+        ### Actor model for getting probability including mean and std. By using this, making distribution and get action
         self.model = FCNN(
             in_feature=observation_dim,
             out_feature= 2 * action_dim,
@@ -185,12 +189,6 @@ class Actor(nn.Module):
     
 def hl_gauss(input, vmin, vmax, num_atoms):
     """
-
-    Args:
-        input (_type_): _description_
-        vmin (_type_): _description_
-        vmax (_type_): _description_
-        num_atoms (_type_): _description_
     """
     x = torch.clip(input, vmin, max = vmax)
     bin_width = (vmax - vmin) / (num_atoms - 1)
@@ -206,7 +204,7 @@ def hl_gauss(input, vmin, vmax, num_atoms):
         (torch.sqrt(torch.tensor(2.0)) * sigma + 1e-6)
     )
     
-    z = cdf_evals[..., -1] - cdf_evals[..., 0] ## What does this mean? 
+    z = cdf_evals[..., -1] - cdf_evals[..., 0] 
     
     target_probs = cdf_evals[..., 1:] - cdf_evals[..., :-1]
     target_probs = (target_probs / (z.unsqueeze(-1) + 1e-6)).reshape(

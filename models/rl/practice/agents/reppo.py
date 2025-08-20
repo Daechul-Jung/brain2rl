@@ -27,8 +27,14 @@ def _env_shape(env):
     asymmetric = getattr(env, "asymmetric_obs", False )
     return num_envs, max_steps, asymmetric
 
-def _to_tensor(input, device):
-    return 
+def _to_tensor(input, device, dtype=torch.float32):
+    """
+    Converting input to tensor with the given device
+    """
+    if torch.is_tensor(input):
+        return input.to(device = device, dtype=dtype if input.dtype.is_floating_point else input.dtype)
+    
+    return torch.as_tensor(input, device=device, dtype=dtype)
 
 def _split_step_return(returns):
     if len(returns) == 5:
@@ -113,6 +119,7 @@ class RePPOAgent:
             mean: Mean of the action distribution
             log_temp: Log of entropy temperature
             log_lagrange: Log of KL regularization parameter
+            
         """
         pi, mean, log_temp, log_lagrange = self.actor(observation)
         return pi, mean, log_temp, log_lagrange
@@ -133,9 +140,9 @@ class RePPOAgent:
         Firstly, concatenate observation and action and put those in feature FCNN network. Then, using features resulted from feature network, get next pred
         Embedded next pred is current state's prediction of the next embedding prediction and via feature network, we can store next state's target embedding 
         """
-        value, logits, next_pred, features = self.critic(observation, action)
+        value, logits, next_pred_feature, features = self.critic(observation, action)
 
-        return value, logits, next_pred, features 
+        return value, logits, next_pred_feature, features 
 
     def update_critic(self, batch: TensorDict):
         """
@@ -153,7 +160,7 @@ class RePPOAgent:
 
         with torch.no_grad():
             q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms)
-
+        ## Getting Q-value from critic network 
         q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)
         log_probs = F.log_softmax(q_logit, dim = -1)
         ce = -(q_target_dist * log_probs).sum(-1)
@@ -241,7 +248,8 @@ class RePPOAgent:
         On-policy rollout and return (transition tensordict, final_obs, final_critic_obs, infos)
         """
         N, _, asymmetric = _env_shape(env)
-
+        trajectory = []
+        info_list = []
         ## initial reset
         if observation is None:
             reset_return = env.reset()
@@ -267,13 +275,37 @@ class RePPOAgent:
             next_pi, _, next_log_temp, next_log_lagran = self._actor_forward(_next_observation)
 
             next_action = next_pi.sample()
+            ### Take sum over batch dimension
             next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
 
             next_value, _, next_pred_unused, next_features = self._critic_forward(next_critic_observation, next_action)
             rewards = _to_tensor(rewards, self.device).view(-1)
 
-            shaped_reward = rewards - self.gamma
-        return 
+            shaped_reward = rewards - self.gamma * next_log_prob * (next_log_temp if torch.is_tensor(next_log_temp) else float(next_log_temp))
+            
+            td = TensorDict(
+                {
+                    'observation': observation,
+                    'critic_observation': critic_observation,
+                    'actions': action,
+                    'log_prob': pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1),
+                    'rewards': shaped_reward.unsqueeze(-1),
+                    'next_embedding': next_features, ### Target for aux loss is the next state encoder features
+                    'next_values': next_value.unsqueeze(-1),
+                    'dones': _to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1),
+                    'truncation': _to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1)
+                },
+                batch_size=(N, )
+            )
+            trajectory.append(td)
+            info_list.append(infos)
+            
+            observation = _to_tensor(next_observation, self.device)
+            critic_observation = _to_tensor(next_critic_observation, self.device)
+            
+        transition  = torch.stack(trajectory, dim = 0) ## Shape: (T, N)
+            
+        return transition, observation, critic_observation, info_list
     
     def evaluate(self,):
         return 
