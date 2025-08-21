@@ -2,6 +2,7 @@ import os
 import sys
 import torch
 import torch.nn as nn
+import numpy as np
 from dataclasses import dataclass
 import torch.optim as optim
 import copy
@@ -20,6 +21,20 @@ Categorical Q-Learning, Appropriately normalized neural network architecture and
 Show how a joint entropy and policy deviation tuning objective can address the twin problems of sufficient exploration and controlled policy update 
 According to the paper, it does not utilize the replay buffer
 """
+
+def _ensure_batch(x, device, N: int):
+    t = torch.as_tensor(x, device=device)
+    if t.ndim == 1:               # (dim,) -> (1, dim)
+        t = t.unsqueeze(0)
+    if t.shape[0] != N:
+        if N == 1 and t.shape[0] > 1:
+            t = t[:1]             # keep first env if needed
+        elif t.shape[0] == 1 and N > 1:
+            # You’re using a single env; don’t try to tile automatically
+            pass
+        else:
+            raise RuntimeError(f"Expected leading batch {N}, got {t.shape}")
+    return t
 
 def _env_shape(env):
     num_envs = getattr(env, "num_envs", 1)
@@ -265,27 +280,33 @@ class RePPOAgent:
         critic_observation = _to_tensor(critic_observation, self.device)
 
         for _ in range(num_steps):
-            pi, _, log_temp, log_lagrange = self._actor_forward(observation)
-            action = pi.sample()
+            # print(self._actor_forward(observation))
+            pi, _, log_temp, log_lagrange = self._actor_forward(observation)  ## As we know, log_temp and log_lagrange are scalar value
+            # print(f'pi: {pi}, \nlog_temp: {log_temp}, \nlog_lag: {log_lagrange}')
+            action = pi.sample()  ## 1 dimensional
+            # print(f'action: {action.detach()}')
+            action = action.detach().cpu().numpy().astype(np.float32)
             step_return = env.step(action)
 
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
             next_critic_observation = next_observation
 
-            _next_observation = _to_tensor(next_observation, self.device)
-            _next_critic_obs = _to_tensor(next_critic_observation, self.device)
+            _next_observation = _ensure_batch(_to_tensor(next_observation, self.device), self.device, N)
+            _next_critic_observation = _ensure_batch(_to_tensor(next_critic_observation, self.device), self.device, N)
 
             next_pi, _, next_log_temp, next_log_lagran = self._actor_forward(_next_observation)
 
             next_action = next_pi.sample()
+            next_action = _to_tensor(next_action, self.device).unsqueeze(0)
+            print(next_action.ndim, observation.ndim)
             ### Take sum over batch dimension
             next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
 
-            next_value, _, next_pred_unused, next_features = self._critic_forward(next_critic_observation, next_action)
+            next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, next_action)
             rewards = _to_tensor(rewards, self.device).view(-1)
 
             shaped_reward = rewards - self.gamma * next_log_prob * (next_log_temp if torch.is_tensor(next_log_temp) else float(next_log_temp))
-            
+            action = _to_tensor(action, self.device)
             td = TensorDict(
                 {
                     'observation': observation,

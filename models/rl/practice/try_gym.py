@@ -30,7 +30,7 @@ def render_agent(agent, env_name: str, episodes: int = 1):
 def main():
     parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")
     parser.add_argument('--env', type=str, default='Humanoid-v5', help='Gym environment name')
-    parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac'], help='RL algorithm to use')
+    parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac', 'reppo'], help='RL algorithm to use')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of training episodes')
     parser.add_argument('--max_steps', type=int, default=1000, help='Max steps per episode')
     parser.add_argument('--render', action='store_true', help='Render environment')
@@ -52,13 +52,13 @@ def main():
     state_dim = obs_space.shape[0]
     action_dim = act_space.shape[0]
 
-    agent = PPOAgent(state_dim, action_dim) if args.algo == 'ppo' else SACAgent(state_dim, action_dim)
+    agent = PPOAgent(state_dim, action_dim) if args.algo == 'ppo' else RePPOAgent(state_dim, action_dim)
     if args.algo == "reppo":
         agent = RePPOAgent(observation_dim=state_dim, action_dim=action_dim)
-    if args.buffer == 'no':
-        rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render=args.render)
-    elif args.algo == 'reppo':
         rewards = train_reppo(env, agent, total_steps=10000)
+    # if args.buffer == 'no':
+    #     rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render=args.render)
+
    
     else :
         rewards = train_agent_with_buffer(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)

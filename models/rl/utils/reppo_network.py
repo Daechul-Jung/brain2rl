@@ -22,6 +22,8 @@ def normalized_activation_layer(in_features, out_features, use_norm = True, acti
         layers.append(nn.RMSNorm([out_features], device=device))
     if activation is not None:
         layers.append(get_activation(activation))
+
+    return nn.Sequential(*layers)
         
 class FCNN(nn.Module):
     def __init__(self, in_feature, out_feature, hidden_dim = 256, 
@@ -57,7 +59,6 @@ class FCNN(nn.Module):
                     activation=output_activation, device=device
                 )
             )
-            
         self.net = nn.Sequential(*net)
         
     def forward(self, x):
