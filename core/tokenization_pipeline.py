@@ -572,7 +572,6 @@ def main():
         # Train tokenizer
         history = pipeline.train_tokenizer(classified_data, action_labels, epochs=args.epochs)
         
-        # Save model
         if args.model_path:
             pipeline.save_models(args.model_path)
         
@@ -582,13 +581,9 @@ def main():
         # Load model
         if args.model_path:
             pipeline.load_models(args.model_path)
-        
-        # Tokenize data
         token_data = pipeline.tokenize_time_series(classified_data)
         
-        # Save results
         np.savez('tokenization_results.npz', **token_data)
-        
         print(f"Tokenization completed. Generated {token_data['tokens'].shape[0]} token sequences")
 
 

@@ -22,7 +22,6 @@ import logging
 from tqdm import tqdm
 from pathlib import Path
 
-# Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from models.classification.action_classifier import EEGConvNet
