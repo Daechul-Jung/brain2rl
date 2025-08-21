@@ -24,17 +24,19 @@ According to the paper, it does not utilize the replay buffer
 
 def _ensure_batch(x, device, N: int):
     t = torch.as_tensor(x, device=device)
-    if t.ndim == 1:               # (dim,) -> (1, dim)
-        t = t.unsqueeze(0)
+    if t.ndim == 1:
+        t = t.unsqueeze(0)            # (1, dim)
     if t.shape[0] != N:
-        if N == 1 and t.shape[0] > 1:
-            t = t[:1]             # keep first env if needed
-        elif t.shape[0] == 1 and N > 1:
-            # You’re using a single env; don’t try to tile automatically
-            pass
-        else:
+        if t.ndim == 3 and t.shape[0] == 1 and t.shape[1] == N:
+            t = t.squeeze(0)          # (N, dim)
+        elif t.ndim == 2 and N == 1 and t.shape[0] > 1:
+            t = t[:1]                 # keep first
+        elif N == 1 and t.ndim > 2 and t.shape[0] == 1:
+            t = t.squeeze(0)
+        elif t.shape[0] != N:
             raise RuntimeError(f"Expected leading batch {N}, got {t.shape}")
     return t
+
 
 def _env_shape(env):
     num_envs = getattr(env, "num_envs", 1)
