@@ -215,7 +215,7 @@ class RePPOAgent:
         """
         N, _, asymmetric = _env_shape(env)
         trajectory = []
-        print(f'N: {N}')
+        # print(f'N: {N}')
         info_list = []
         ## initial reset
         if observation is None:
@@ -230,7 +230,7 @@ class RePPOAgent:
         for _ in range(num_steps):
             pi, _, temp, lagrange = self._actor_forward(observation)  ## As we know, temp and lagrange are scalar value
             action = pi.sample()  ## 1 dimensional
-            print(f'action: {action} and dimension: {action.shape}, {action.ndim}')
+            # print(f'action: {action} and dimension: {action.shape}, {action.ndim}')
             
             action = action.clamp(-1 + 1e-6,  1 - 1e-6)
             # action = pi.log_prob(action)
@@ -254,35 +254,52 @@ class RePPOAgent:
             rewards = _to_tensor(rewards, self.device).view(-1)
             shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
             action = _to_tensor(action, self.device)
-            print(f'obs dim: {observation.unsqueeze(0).shape}\n'
-                  f'cri_obs_dim: {critic_observation.unsqueeze(0).shape}\n'
-                  f'action_dim: {action.unsqueeze(0).shape}\n'
-                  f'log_prob_dim: {pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1).unsqueeze(0).shape}\n'
-                  f'rewards: {shaped_reward.unsqueeze(-1).shape}\n'
-                  f'raw_rewards: {rewards.unsqueeze(-1).shape}\n'
-                  f'next_embedding:{next_features.unsqueeze(0).shape}\n', ### Target for aux loss is the next state encoder features
-                  f'next_values: {next_value.unsqueeze(-1).shape}\n'
-                  f'dones: {_to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1).shape}\n'
-                  f'truncations: {_to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1).shape}\n'
-                  )
-            observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
-                observation, critic_observation, 
+            # print(f'obs dim: {observation.unsqueeze(0).shape}\n'
+            #       f'cri_obs_dim: {critic_observation.unsqueeze(0).shape}\n'
+            #       f'action_dim: {action.unsqueeze(0).shape}\n'
+            #       f'log_prob_dim: {pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1).unsqueeze(0).shape}\n'
+            #       f'rewards: {shaped_reward.unsqueeze(-1).shape}\n'
+            #       f'raw_rewards: {rewards.unsqueeze(-1).shape}\n'
+            #       f'next_embedding:{next_features.unsqueeze(0).shape}\n', ### Target for aux loss is the next state encoder features
+            #       f'next_values: {next_value.unsqueeze(-1).shape}\n'
+            #       f'dones: {_to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1).shape}\n'
+            #       f'truncations: {_to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1).shape}\n'
+            #       )
+
+            observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_value_batch, next_features_batch, dones_batch, truncated_batch = wrap_batch_dim(
+                observation, critic_observation, action, pi.log_prob(action).sum(-1), shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
             )
+
             td = TensorDict(
                 {
-                    'observation': observation,
-                    'critic_observation': critic_observation,
-                    'actions': action,
-                    'log_prob': pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1),
-                    'rewards': shaped_reward.unsqueeze(-1),
-                    'raw_rewards' : rewards.unsqueeze(-1),
-                    'next_embedding': next_features.unsqueeze(0), ### Target for aux loss is the next state encoder features
-                    'next_values': next_value.unsqueeze(-1),
-                    'dones': _to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1),
-                    'truncations': _to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1)
+                    "observation":        observation_batch,             # [N, obs_dim]
+                    "critic_observation": critic_observation_batch,            # [N, obs_dim]
+                    "actions":            action_batch,             # [N, act_dim]
+                    "log_prob":           log_prob_batch,            # [N] (or use logp_b.unsqueeze(-1) if you prefer [N,1])
+                    "rewards":            rewards_batch,             # [N,1]
+                    "raw_rewards":        raw_reward_batch,         # [N,1]
+                    "next_embedding":     next_features_batch,       # [N, F]
+                    "next_values":        next_value_batch,        # [N,1]
+                    "dones":              dones_batch,            # [N,1]
+                    "truncations":        truncated_batch,           # [N,1]
                 },
-                batch_size=(N, )
+                batch_size=(N,),
             )
+            # td = TensorDict(
+            #     {
+            #         'observation': observation,
+            #         'critic_observation': critic_observation,
+            #         'actions': action,
+            #         'log_prob': pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1),
+            #         'rewards': shaped_reward.unsqueeze(-1),
+            #         'raw_rewards' : rewards.unsqueeze(-1),
+            #         'next_embedding': next_features.unsqueeze(0), ### Target for aux loss is the next state encoder features
+            #         'next_values': next_value.unsqueeze(-1),
+            #         'dones': _to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1),
+            #         'truncations': _to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1)
+            #     },
+            #     batch_size=(N, )
+            # )
             trajectory.append(td)
             info_list.append(infos)
             
