@@ -118,7 +118,7 @@ class RePPOAgent:
         observation_critic = batch['critic_observation'] # Shape: (Batch, observation_critic)
         actions = batch['actions'] # shape: (Batch, Action)
         targets = batch['gve'].squeeze(-1) # Shape: (Batch, )
-        truncated = batch['truncation'].squeeze(-1) # Shape: (Batch, )
+        truncated = batch['truncations'].squeeze(-1) # Shape: (Batch, )
         target_next_feature = batch['next_embedding'] # Shape: (Batch, )
 
         trunc_mask = (1.0 - truncated).to(observation_critic.dtype)
