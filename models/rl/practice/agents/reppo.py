@@ -278,8 +278,8 @@ class RePPOAgent:
         if critic_observation is None:
             critic_observation = observation
 
-        observation = _to_tensor(observation, self.device)
-        critic_observation = _to_tensor(critic_observation, self.device)
+        observation = _ensure_batch(_to_tensor(observation, self.device), self.device, N)
+        critic_observation = _ensure_batch(_to_tensor(critic_observation, self.device), self.device, N)
 
         for _ in range(num_steps):
             # print(self._actor_forward(observation))
@@ -287,6 +287,9 @@ class RePPOAgent:
             # print(f'pi: {pi}, \nlog_temp: {log_temp}, \nlog_lag: {log_lagrange}')
             action = pi.sample()  ## 1 dimensional
             # print(f'action: {action.detach()}')
+            if action.ndim == 1:
+                action = action.unsqueeze(0)
+            action = action.clamp(-1 + 1e-6,  1 - 1e-6) #### action clampping for log probability
             action = action.detach().cpu().numpy().astype(np.float32)
             step_return = env.step(action)
 
@@ -300,6 +303,8 @@ class RePPOAgent:
 
             next_action = next_pi.sample()
             next_action = _to_tensor(next_action, self.device).unsqueeze(0)
+            if next_action.ndim == 1:
+                next_action = next_action.unsqueeze(0) 
             print(next_action.ndim, observation.ndim)
             ### Take sum over batch dimension
             next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)

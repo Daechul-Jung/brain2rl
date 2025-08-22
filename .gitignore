@@ -2,3 +2,7 @@
 data/
 dataset.csv
 *.csv
+/external/openarm_mujoco/
+*.pt
+*.pth
+__pycache__/

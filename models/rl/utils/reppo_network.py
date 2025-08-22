@@ -156,6 +156,8 @@ class Actor(nn.Module):
                  layers =3, min_std = 0.1, device = None):
         super().__init__()
         ### Actor model for getting probability including mean and std. By using this, making distribution and get action
+
+
         self.model = FCNN(
             in_feature=observation_dim,
             out_feature= 2 * action_dim,
@@ -167,11 +169,15 @@ class Actor(nn.Module):
             layers = layers,
             device=device
         )
+
+
         ## Setting entropy as parameter for update
         self.log_temp = nn.Parameter(
             torch.log(torch.tensor(entropy_start, device=device, dtype = torch.float32))
         )
-        ## Setting kl-regulation for lagrange as parameter for update
+
+
+        ## Setting kl-regulation for lagrange as parameter for update. both temp and lagrange are updated in loss function 
         self.log_lagrange = nn.Parameter(
             torch.log(torch.tensor(kl_start, device = device, dtype = torch.float32))
         )

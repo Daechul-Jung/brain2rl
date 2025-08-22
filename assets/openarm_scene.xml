@@ -1,0 +1,16 @@
+<mujoco model="openarm_scene">
+  <!-- include vendor robot (single arm) -->
+  <include file="../external/openarm_mujoco/v1/openarm.xml"/>
+
+  <!-- your task/world -->
+  <option timestep="0.002"/>
+
+  <worldbody>
+    <!-- Example: cylinder "cup" -->
+    <body name="cup" pos="0.35 0.00 0.75">
+      <geom name="cup_geom" type="cylinder" size="0.03 0.06"
+            rgba="0.6 0.3 0.1 1" friction="0.8 0.1 0.1" contype="1" conaffinity="1"/>
+      <freejoint/>
+    </body>
+  </worldbody>
+</mujoco>

@@ -1,16 +1,22 @@
-import argparse
+import argparse, os, sys
 import gymnasium as gym
-import numpy as np
-import sys
-import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'models', 'rl'))
-from models.rl.practice.agents.ppo import PPOAgent 
-from models.rl.practice.agents.ppoWdiff import DiffusionPPOAgent
 from models.rl.practice.agents.reppo import *
-from models.rl.practice.agents.sac import SACAgent
-from models.rl.utils.train import train_agent, train_agent_with_buffer, train_reppo
+from models.rl.practice.agents.ppo import *
+from models.rl.practice.agents.sac import *
+from models.rl.utils.train import train_reppo, train_agent_with_buffer, train_agent
+from models.rl.envs.openarm_mj_env import OpenArmMjEnv
 
-
+def make_env(sim, mjcf, steps, render):
+    if sim == "mujoco":
+        # from brain2rl.models.rl.envs.openarm_mj_env import OpenArmMjEnv
+        xml = mjcf or os.path.expanduser("~/brain2rl/external/openarm_mujoco/v1/scene.xml")
+        return OpenArmMjEnv(xml_path=xml, horizon=steps, render=render)
+    else:
+        # your existing Gym env fallback
+        import gymnasium as gym
+        return gym.make("Humanoid-v5")
+    
 
 def render_agent(agent, env_name: str, episodes: int = 1):
     env = gym.make(env_name, render_mode="human")
@@ -27,15 +33,14 @@ def render_agent(agent, env_name: str, episodes: int = 1):
     env.close()
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")
-    parser.add_argument('--env', type=str, default='Humanoid-v5', help='Gym environment name')
-    parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac', 'reppo'], help='RL algorithm to use')
-    parser.add_argument('--episodes', type=int, default=1000, help='Number of training episodes')
-    parser.add_argument('--max_steps', type=int, default=1000, help='Max steps per episode')
-    parser.add_argument('--render', action='store_true', help='Render environment')
-    parser.add_argument('--buffer', type=str, default='no', help='Training without buffer')
-    args = parser.parse_args()
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--sim", choices=["mujoco","gym"], default="mujoco")
+    p.add_argument("--mjcf", type=str, default=None)
+    p.add_argument("--render", action="store_true")
+    p.add_argument("--steps", type=int, default=300)
+    # ... your existing RL args (algo, lr, etc.)
+    args = p.parse_args()
 
     print(f"\n=== RL Demo on Gym ===")
     print(f"Environment: {args.env}")
@@ -52,23 +57,19 @@ def main():
     state_dim = obs_space.shape[0]
     action_dim = act_space.shape[0]
 
-    agent = PPOAgent(state_dim, action_dim) if args.algo == 'ppo' else RePPOAgent(state_dim, action_dim)
     if args.algo == "reppo":
         agent = RePPOAgent(observation_dim=state_dim, action_dim=action_dim)
         rewards = train_reppo(env, agent, total_steps=10000)
-    # if args.buffer == 'no':
-    #     rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render=args.render)
 
-   
-    else :
+    elif args.algo == "ppo":
+        agent = PPOAgent(observation_dim=state_dim, action_dim=action_dim)
         rewards = train_agent_with_buffer(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
+
+        
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
-    agent.save('ppo_humanoid.pth')
+    agent.save(f'{args.algo}_openarm_mujoco.pth')
     env.close()
+
 
     render_agent(agent, args.env, episodes=args.episodes)
 
-
-
-if __name__ == "__main__":
-    main() 
