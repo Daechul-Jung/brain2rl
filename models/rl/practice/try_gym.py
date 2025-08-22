@@ -45,6 +45,7 @@ def main():
     env = gym.make(args.env)
     obs_space = env.observation_space
     act_space = env.action_space
+    print(f'observation dimension: {obs_space.shape} and action dimension: {act_space.shape}')
 
     if not isinstance(act_space, gym.spaces.Box):
         raise ValueError("This script only supports continuous action spaces (gym.spaces.Box)")

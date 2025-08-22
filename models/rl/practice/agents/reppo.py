@@ -12,6 +12,7 @@ from tensordict import TensorDict
 from typing import Dict, Tuple, Optional
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.rl.utils.reppo_network import *
+from models.rl.utils.any_utils import (compute_gve, _ensure_batch, _env_shape, _split_step_return, _to_tensor, wrap_batch_dim)
 
 """
 This algorithm is Relative Entropy Pairwise Policy Optimization (RePPO)
@@ -22,61 +23,6 @@ Show how a joint entropy and policy deviation tuning objective can address the t
 According to the paper, it does not utilize the replay buffer
 """
 
-def _ensure_batch(x, device, N: int):
-    t = torch.as_tensor(x, device=device)
-    if t.ndim == 1:
-        t = t.unsqueeze(0)            # (1, dim)
-    if t.shape[0] != N:
-        if t.ndim == 3 and t.shape[0] == 1 and t.shape[1] == N:
-            t = t.squeeze(0)          # (N, dim)
-        elif t.ndim == 2 and N == 1 and t.shape[0] > 1:
-            t = t[:1]                 # keep first
-        elif N == 1 and t.ndim > 2 and t.shape[0] == 1:
-            t = t.squeeze(0)
-        elif t.shape[0] != N:
-            raise RuntimeError(f"Expected leading batch {N}, got {t.shape}")
-    return t
-
-
-def _env_shape(env):
-    num_envs = getattr(env, "num_envs", 1)
-    max_steps = getattr(env, "max_episode_steps", 5000)
-    asymmetric = getattr(env, "asymmetric_obs", False )
-    return num_envs, max_steps, asymmetric
-
-def _to_tensor(input, device, dtype=torch.float32):
-    """
-    Converting input to tensor with the given device
-    """
-    if torch.is_tensor(input):
-        return input.to(device = device, dtype=dtype if input.dtype.is_floating_point else input.dtype)
-    
-    return torch.as_tensor(input, device=device, dtype=dtype)
-
-def _split_step_return(returns):
-    if len(returns) == 5:
-        next_observation, reward, done, truncated, info = returns 
-    else:
-        next_observation, reward, done, info = returns 
-        truncated = torch.zeros_like(done, dtype=torch.bool) if torch.is_tensor(done) else False
-    return next_observation, reward, done, truncated, info
-
-def compute_gve(rewards, dones, truncations, next_values, gamma:float, lmbda:float):
-    """
-    Compute Generalized Value Estimator for REPPO
-    """
-    gves = []
-    last_gve = torch.zeros_like(next_values[-1])
-    trunc = truncations.clone()
-    trunc[-1] = 1.0
-
-    for t in reversed(range(rewards.shape[0])):
-        lmbda_sum = lmbda * last_gve + (1 - lmbda) * next_values[t]
-        delta = gamma * torch.where(trunc[t].bool(), next_values[t], (1.0 - dones[t]) * lmbda_sum)
-        last_gve = rewards[t] + delta
-        gves.insert(0, last_gve)
-
-    return gves
 
 @dataclass(slots=True)
 class TrainState:
@@ -136,12 +82,12 @@ class RePPOAgent:
         Returns:
             pi: Action probabilities with transformed distributions
             mean: Mean of the action distribution
-            log_temp: Log of entropy temperature
-            log_lagrange: Log of KL regularization parameter
+            temp: entropy temperature
+            lagrange: KL regularization parameter
             
         """
-        pi, mean, log_temp, log_lagrange = self.actor(observation)
-        return pi, mean, log_temp, log_lagrange
+        pi, mean, temp, lagrange = self.actor(observation)
+        return pi, mean, temp, lagrange
     
     def _old_actor_dist(self, observation):
         """
@@ -211,7 +157,7 @@ class RePPOAgent:
         observation = batch['observation']
         observation_critic = batch['critic_observation']
         ## Get action distribution, mean, entropy, and kl-regulation from actor network 
-        pi, mean, log_temp, log_lagrange = self._actor_forward(observation=observation) 
+        pi, mean, temp, lagrange = self._actor_forward(observation=observation) 
         # Then resample the action from the distribution(Transformed)
         actions = pi.rsample() # Shape: (Batch, Action)
 
@@ -223,7 +169,7 @@ class RePPOAgent:
 
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
         # Actor objective 
-        actor_obj = -q_scalar + log_temp.detach() * log_pi
+        actor_obj = -q_scalar + temp.detach() * log_pi
         ## KL(new||old) using old policy sample 
         with torch.no_grad():
             # Sample from the old distribution
@@ -236,14 +182,14 @@ class RePPOAgent:
         kl_est = (old_log_prob - new_log_prob).mean(0)
         
         kl_bound = self.kl_bound
-        clipped = torch.where(kl_est < kl_bound, actor_obj, kl_est * log_lagrange)
+        clipped = torch.where(kl_est < kl_bound, actor_obj, kl_est * lagrange)
 
         ### entropy temperature and KL-Lagrangian terms and loss 
         target_entropy = observation.new_tensor(observation.shape[-1])
 
-        entropy_loss = (target_entropy + entropy).detach().mean() * log_temp
+        entropy_loss = (target_entropy + entropy).detach().mean() * temp
 
-        lagrangian = - log_lagrange * (kl_est - kl_bound).mean().detach()
+        lagrangian = - lagrange * (kl_est - kl_bound).mean().detach()
         total_loss = clipped.mean() + entropy_loss + lagrangian
         self.actor_optimizer.zero_grad(set_to_none=True)
 
@@ -255,8 +201,8 @@ class RePPOAgent:
             "actor_loss": total_loss.detach(),
             "kl": kl_est.mean().detach(),
             "entropy": entropy.mean().detach(),
-            "temperature": log_temp.detach(),
-            "lagrangian": log_lagrange.detach(),
+            "temperature": temp.detach(),
+            "lagrangian": lagrange.detach(),
             "entropy_loss": entropy_loss.detach(),
             "lagrangian_loss": lagrangian.detach(),
         }
@@ -269,6 +215,7 @@ class RePPOAgent:
         """
         N, _, asymmetric = _env_shape(env)
         trajectory = []
+        print(f'N: {N}')
         info_list = []
         ## initial reset
         if observation is None:
@@ -277,45 +224,50 @@ class RePPOAgent:
 
         if critic_observation is None:
             critic_observation = observation
-
-        observation = _ensure_batch(_to_tensor(observation, self.device), self.device, N)
-        critic_observation = _ensure_batch(_to_tensor(critic_observation, self.device), self.device, N)
-        print(f' osbervation dimension in collect: {observation.shape}')
+        observation = _to_tensor(observation, self.device)
+        critic_observation = _to_tensor(critic_observation, self.device)
 
         for _ in range(num_steps):
-            # print(self._actor_forward(observation))
-            pi, _, log_temp, log_lagrange = self._actor_forward(observation)  ## As we know, log_temp and log_lagrange are scalar value
-            # print(f'pi: {pi}, \nlog_temp: {log_temp}, \nlog_lag: {log_lagrange}')
+            pi, _, temp, lagrange = self._actor_forward(observation)  ## As we know, temp and lagrange are scalar value
             action = pi.sample()  ## 1 dimensional
-            print(f'action: {action} and dimension: {action.shape}')
-            if action.ndim == 1:
-                action = action.unsqueeze(0)
-            action = action.clamp(-1 + 1e-6,  1 - 1e-6) #### action clampping for log probability. Add this but is it really necessary?
+            print(f'action: {action} and dimension: {action.shape}, {action.ndim}')
+            
+            action = action.clamp(-1 + 1e-6,  1 - 1e-6)
+            # action = pi.log_prob(action)
             action = action.detach().cpu().numpy().astype(np.float32)
-            print(f'action after clamping: {action} and its shape: {action.shape}')
             step_return = env.step(action)
 
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
             next_critic_observation = next_observation
 
-            _next_observation = _ensure_batch(_to_tensor(next_observation, self.device), self.device, N)
-            _next_critic_observation = _ensure_batch(_to_tensor(next_critic_observation, self.device), self.device, N)
-            print(f'next observation dimension in collect: {_next_observation.shape}')
-            next_pi, _, next_log_temp, next_log_lagran = self._actor_forward(_next_observation)
+            _next_observation = _to_tensor(next_observation, self.device)
+            _next_critic_observation = _to_tensor(next_critic_observation, self.device)
+            next_pi, _, next_temp, next_lagran = self._actor_forward(_next_observation)
 
             next_action = next_pi.sample()
-            next_action = _to_tensor(next_action, self.device).unsqueeze(0)
-            if next_action.ndim == 1:
-                next_action = next_action.unsqueeze(0) 
-            print(next_action.ndim, observation.ndim)
+            next_action = _to_tensor(next_action, self.device)
+            
             ### Take sum over batch dimension
             next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
 
             next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, next_action)
             rewards = _to_tensor(rewards, self.device).view(-1)
-
-            shaped_reward = rewards - self.gamma * next_log_prob * (next_log_temp if torch.is_tensor(next_log_temp) else float(next_log_temp))
+            shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
             action = _to_tensor(action, self.device)
+            print(f'obs dim: {observation.unsqueeze(0).shape}\n'
+                  f'cri_obs_dim: {critic_observation.unsqueeze(0).shape}\n'
+                  f'action_dim: {action.unsqueeze(0).shape}\n'
+                  f'log_prob_dim: {pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1).unsqueeze(0).shape}\n'
+                  f'rewards: {shaped_reward.unsqueeze(-1).shape}\n'
+                  f'raw_rewards: {rewards.unsqueeze(-1).shape}\n'
+                  f'next_embedding:{next_features.unsqueeze(0).shape}\n', ### Target for aux loss is the next state encoder features
+                  f'next_values: {next_value.unsqueeze(-1).shape}\n'
+                  f'dones: {_to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1).shape}\n'
+                  f'truncations: {_to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1).shape}\n'
+                  )
+            observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
+                observation, critic_observation, 
+            )
             td = TensorDict(
                 {
                     'observation': observation,
@@ -324,7 +276,7 @@ class RePPOAgent:
                     'log_prob': pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1),
                     'rewards': shaped_reward.unsqueeze(-1),
                     'raw_rewards' : rewards.unsqueeze(-1),
-                    'next_embedding': next_features, ### Target for aux loss is the next state encoder features
+                    'next_embedding': next_features.unsqueeze(0), ### Target for aux loss is the next state encoder features
                     'next_values': next_value.unsqueeze(-1),
                     'dones': _to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1),
                     'truncations': _to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1)
