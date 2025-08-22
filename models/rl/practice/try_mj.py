@@ -35,21 +35,23 @@ def render_agent(agent, env_name: str, episodes: int = 1):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
+    p.add_argument("--algo", type=str, default='reppo')
     p.add_argument("--sim", choices=["mujoco","gym"], default="mujoco")
     p.add_argument("--mjcf", type=str, default=None)
     p.add_argument("--render", action="store_true")
-    p.add_argument("--steps", type=int, default=300)
+    p.add_argument("--steps", type=int, default=1000)
     # ... your existing RL args (algo, lr, etc.)
     args = p.parse_args()
 
     print(f"\n=== RL Demo on Gym ===")
-    print(f"Environment: {args.env}")
+    print(f"Environment: {args.sim}")
     print(f"Algorithm: {args.algo}")
 
     # Create environment
-    env = gym.make(args.env)
+    env = make_env(args.sim, args.mjcf, args.steps, args.render)
     obs_space = env.observation_space
     act_space = env.action_space
+    print(f'observation space: {obs_space.shape} and action space: {act_space.shape}')
 
     if not isinstance(act_space, gym.spaces.Box):
         raise ValueError("This script only supports continuous action spaces (gym.spaces.Box)")

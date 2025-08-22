@@ -280,17 +280,19 @@ class RePPOAgent:
 
         observation = _ensure_batch(_to_tensor(observation, self.device), self.device, N)
         critic_observation = _ensure_batch(_to_tensor(critic_observation, self.device), self.device, N)
+        print(f' osbervation dimension in collect: {observation.shape}')
 
         for _ in range(num_steps):
             # print(self._actor_forward(observation))
             pi, _, log_temp, log_lagrange = self._actor_forward(observation)  ## As we know, log_temp and log_lagrange are scalar value
             # print(f'pi: {pi}, \nlog_temp: {log_temp}, \nlog_lag: {log_lagrange}')
             action = pi.sample()  ## 1 dimensional
-            # print(f'action: {action.detach()}')
+            print(f'action: {action} and dimension: {action.shape}')
             if action.ndim == 1:
                 action = action.unsqueeze(0)
-            action = action.clamp(-1 + 1e-6,  1 - 1e-6) #### action clampping for log probability
+            action = action.clamp(-1 + 1e-6,  1 - 1e-6) #### action clampping for log probability. Add this but is it really necessary?
             action = action.detach().cpu().numpy().astype(np.float32)
+            print(f'action after clamping: {action} and its shape: {action.shape}')
             step_return = env.step(action)
 
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
@@ -298,7 +300,7 @@ class RePPOAgent:
 
             _next_observation = _ensure_batch(_to_tensor(next_observation, self.device), self.device, N)
             _next_critic_observation = _ensure_batch(_to_tensor(next_critic_observation, self.device), self.device, N)
-
+            print(f'next observation dimension in collect: {_next_observation.shape}')
             next_pi, _, next_log_temp, next_log_lagran = self._actor_forward(_next_observation)
 
             next_action = next_pi.sample()
