@@ -301,15 +301,22 @@ class RePPOAgent:
             
         return transition, observation, critic_observation, info_list
     
+    def get_action(self, observation, training=False):
+        # to tensor on the SAME device/dtype as the model
+        obs_t = torch.as_tensor(observation, dtype=torch.float32, device=self.device)
+        if obs_t.dim() == 1:
+            obs_t = obs_t.unsqueeze(0)  # [1, obs_dim]
 
-    def get_action(self, observation):
+        self.actor.eval()
         with torch.no_grad():
-            pi, mean, temp, lag = self._actor_forward(observation)
-        
-        action = pi.sample()
+            pi, mean, temp, lag = self._actor_forward(obs_t)   # actor is on self.device
+            action_t = pi.rsample() if training else pi.sample()  # [1, act_dim] in (-1,1) due to Tanh
+        self.actor.train()
 
+        # remove batch dim, move to CPU, ensure float32 numpy
+        return action_t.squeeze(0).cpu().numpy().astype(np.float32)
+    
 
-        return action
     @torch.no_grad()
     def evaluate(self, env,
         episodes: int = 5,

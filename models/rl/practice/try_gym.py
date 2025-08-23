@@ -18,7 +18,7 @@ def render_agent(agent, env_name: str, episodes: int = 1):
         state, info = env.reset()
         done = False
         while not done:
-            action, _ = agent.get_action(state, training=False)
+            action = agent.get_action(state, training=False)
             if isinstance(env.action_space, gym.spaces.Box):
                 low, high = env.action_space.low, env.action_space.high
                 action = low + 0.5 * (action + 1.0) * (high - low)
