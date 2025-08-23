@@ -64,11 +64,13 @@ class RePPOAgent:
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim=observation_dim,
                             action_dim=action_dim, 
+                            hidden_dim=512,
                            kl_start=kl_start, entropy_start=entropy_start, 
                            device=device)
         self.old_actor = copy.deepcopy(self.actor).to(self.device)
         self.critic = Critic(observation_dim=observation_dim, 
-                             action_dim=action_dim, 
+                             action_dim=action_dim,
+                             hidden_dim=1024, 
                              num_atoms=num_atoms, 
                              vmin=vmin, vmax=vmax, 
                              device=device)
@@ -117,28 +119,35 @@ class RePPOAgent:
 
         observation_critic = batch['critic_observation'] # Shape: (Batch, observation_critic)
         actions = batch['actions'] # shape: (Batch, Action)
-        targets = batch['gve'].squeeze(-1) # Shape: (Batch, )
+        targets = batch['gve'].squeeze(-1) # Shape: (Batch, hidden_dim)
         truncated = batch['truncations'].squeeze(-1) # Shape: (Batch, )
         target_next_feature = batch['next_embedding'] # Shape: (Batch, )
         trunc_mask = (1.0 - truncated).to(observation_critic.dtype)
 
-        print(f'targets dim: {targets.shape}')
-        print(f'action_dim: {actions.shape}')
-        print(f'observation_critic dim: {observation_critic.shape}')
-        print(f'truncated: {truncated.shape}')
+        # print(f'targets shape: {batch["gve"].squeeze(-1).shape}')
+        # # targets = batch['raw_rewards'] + self.gamma * (1- batch['dones']) * batch['next_values']
+        # # targets = targets.squeeze(-1)
+        # # targets = targets.sum(-1)
+        # # print(f'target after calculation: {targets}')
+        # print(f'targets dim: {targets.shape}')
+        # print(f'action_dim: {actions.shape}')
+        # print(f'observation_critic dim: {observation_critic.shape}')
+        # print(f'truncated: {truncated.shape}')
 
         ## Getting q_target_distribution via hl_gauss
         with torch.no_grad():
-            q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms)
-
+            q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms) ### Shape of (B, 256, num_atoms)
 
         ## Getting Q-value from critic network 
-        q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)
+        q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)  ## Return value, logit, next_
         log_probs = F.log_softmax(q_logit, dim = -1)
-        ce = -(q_target_dist * log_probs).sum(-1)
 
-        emb_loss = F.mse_loss(next_pred, target_next_feature, reduction=None)
+        ce = -(q_target_dist * log_probs).sum(-1) # 
+
+        emb_loss = F.mse_loss(next_pred, target_next_feature, reduction='none').mean(dim=-1) ## (B, )
+
         loss = (trunc_mask * (ce +  self.aux_loss_mult * emb_loss)).mean()
+
         self.critic_optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)    
@@ -258,11 +267,11 @@ class RePPOAgent:
             next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
 
             next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, next_action)
-            rewards = _to_tensor(rewards, self.device).view(-1)
+            rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension
             shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
             action = _to_tensor(action, self.device)
 
-            observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_value_batch, next_features_batch, dones_batch, truncated_batch = wrap_batch_dim(
+            observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
                 observation, critic_observation, action, pi.log_prob(action).sum(-1), shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
             )
 
@@ -292,6 +301,15 @@ class RePPOAgent:
             
         return transition, observation, critic_observation, info_list
     
+
+    def get_action(self, observation):
+        with torch.no_grad():
+            pi, mean, temp, lag = self._actor_forward(observation)
+        
+        action = pi.sample()
+
+
+        return action
     @torch.no_grad()
     def evaluate(self, env,
         episodes: int = 5,

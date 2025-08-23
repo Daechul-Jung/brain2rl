@@ -98,10 +98,10 @@ class Critic(nn.Module):
             layers=encoder_layers,
             device=device
         )
-        ## Critic module network for getting logit from feature which is calculated from feature module 
+        ## Critic module network for getting logit from feature which is calculated from feature module, return critic value
         self.critic_module = FCNN(
             in_feature=hidden_dim,
-            out_feature=num_atoms,
+            out_feature=1,
             hidden_dim=hidden_dim,
             hidden_activation='swish',
             output_activation=None,
@@ -140,7 +140,7 @@ class Critic(nn.Module):
         ## Do prediction through prediction module
         next_pred_feature = self.pred_module(features)
         ## Getting logit through critic module
-        logit = self.critic_module(features)
+        logit = self.critic_module(features) + 40.9 * self.zero_dist
 
         ## Concatenate value
         value_cat = torch.softmax(logit, dim = -1)
@@ -194,37 +194,61 @@ class Actor(nn.Module):
         )
         return transformed_pi, torch.tanh(mean), torch.exp(self.log_temp), torch.exp(self.log_lagrange)
     
+# def hl_gauss(input, vmin, vmax, num_atoms):
+#     """
+#     """
+#     if input.dim() == 2 and input.size(-1) == 1:
+#         input = input.squeeze(-1)       # [B,1] -> [B]
+#     elif input.dim() != 1:
+#         raise ValueError(f"hl_gauss expects [B] or [B,1]; got {tuple(input.shape)}")
+    
+
+#     x = torch.clip(input, vmin, max = vmax)
+#     bin_width = (vmax - vmin) / (num_atoms - 1)
+#     sigma_to_final_sigma_ratio = 0.75
+
+#     support = torch.linspace(
+#         vmin - bin_width/2,
+#         vmax + bin_width/2,
+#         num_atoms + 1,
+#         device = input.device)
+    
+#     sigma = bin_width * sigma_to_final_sigma_ratio
+
+#     cdf_evals = torch.erf(
+#         (support.unsqueeze(0) - x).squeeze() /
+#         (torch.sqrt(torch.tensor(2.0)) * sigma + 1e-6)
+#     )
+    
+#     z = cdf_evals[..., -1] - cdf_evals[..., 0] 
+    
+#     target_probs = cdf_evals[..., 1:] - cdf_evals[..., :-1]
+#     target_probs = (target_probs / (z.unsqueeze(-1) + 1e-6)).reshape(
+#         *input.shape[:-1], num_atoms
+#     )
+#     return target_probs
 def hl_gauss(input, vmin, vmax, num_atoms):
-    """
-    """
-    if input.dim() == 0:
-        input = input.view(1, 1)
+    # accept [B] or [B,1]; reject anything else
+    if input.dim() == 2 and input.size(-1) == 1:
+        x = input.squeeze(-1)   # [B]
     elif input.dim() == 1:
-        input = input.unsqueeze(-1)        # [B] -> [B,1]
-    elif input.dim() == 2 and input.size(-1) == 1:
-        pass                       # already [B,1]
+        x = input               # [B]
     else:
-        raise ValueError(f"hl_gauss expects [B] or [B,1]; got {tuple(input.shape)}. "
-                         f"Did you pass a feature vector (e.g., 256-d)?")
-    x = torch.clip(input, vmin, max = vmax)
+        raise ValueError(f"hl_gauss expects [B] or [B,1]; got {tuple(input.shape)}")
+
+    x = torch.clamp(x, vmin, vmax)                     # [B]
     bin_width = (vmax - vmin) / (num_atoms - 1)
-    sigma_to_final_sigma_ratio = 0.75
-    support = torch.linspace(
-        vmin - bin_width/2,
-        vmax + bin_width/2,
-        num_atoms + 1,
-        device = input.device)
-    sigma = bin_width * sigma_to_final_sigma_ratio
-        
-    cdf_evals = torch.erf(
-        (support.unsqueeze(0) - x).squeeze() /
-        (torch.sqrt(torch.tensor(2.0)) * sigma + 1e-6)
+    sigma = 0.75 * bin_width
+
+    edges = torch.linspace(                            # [A+1]
+        vmin - bin_width/2, vmax + bin_width/2,
+        num_atoms + 1, device=x.device, dtype=x.dtype
     )
-    
-    z = cdf_evals[..., -1] - cdf_evals[..., 0] 
-    
-    target_probs = cdf_evals[..., 1:] - cdf_evals[..., :-1]
-    target_probs = (target_probs / (z.unsqueeze(-1) + 1e-6)).reshape(
-        *input.shape[:-1], num_atoms
-    )
-    return target_probs
+    import math
+    denom = math.sqrt(2.0) * sigma + 1e-6
+    diff = (edges.unsqueeze(0) - x.unsqueeze(1)) / denom   # [B, A+1]
+    cdf  = torch.erf(diff)                                  # [B, A+1]
+
+    z     = cdf[:, -1] - cdf[:, 0]                         # [B]
+    probs = (cdf[:, 1:] - cdf[:, :-1]) / (z.unsqueeze(1) + 1e-8)  # [B, A]
+    return probs

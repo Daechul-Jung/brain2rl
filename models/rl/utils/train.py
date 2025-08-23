@@ -40,12 +40,12 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     N_envs = getattr(env, 'num_envs', 1)
     
     batch_size = (N_envs * num_step) // num_mini_batch
-    print(f'batch size: {batch_size}')
     
     total_updates = total_steps // (N_envs * num_step) + 1
     eval_interval = max(1, total_updates // (max(1, num_eval)))
     
     reset_return = env.reset()
+    
     observation  = reset_return[0] if isinstance(reset_return, tuple) else reset_return
     
     critic_observation = None 
@@ -73,6 +73,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
                 'critic_observation': transition['critic_observation'],
                 'actions': transition['actions'],
                 'rewards': transition['rewards'],
+                'raw_rewards': transition['raw_rewards'],
                 'next_embedding': transition['next_embedding'],
                 'next_values': transition['next_values'],
                 'dones': transition['dones'],
@@ -97,7 +98,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
         ## syncronize old actor
         with torch.no_grad():
             for p,q in zip(agent.old_actor.parameters(), agent.old_actor.parameters()):
-                q.data.copy_(data)
+                q.data.copy_(p.data)
                 
         if evaluate_func and (global_update % eval_interval == 0):
             eval_metrics = evaluate_func(agent) or {}
