@@ -40,6 +40,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     N_envs = getattr(env, 'num_envs', 1)
     
     batch_size = (N_envs * num_step) // num_mini_batch
+    print(f'batch size: {batch_size}')
     
     total_updates = total_steps // (N_envs * num_step) + 1
     eval_interval = max(1, total_updates // (max(1, num_eval)))
@@ -51,10 +52,13 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     
     global_update = 0 
     all_episode_returns = []
+
     while global_update < total_updates:
         transition, observation, critic_observation, infos = agent.collect(env, observation, critic_observation, num_step)
         ep_returns, ep_lengths = _episode_stats_from_rollout(transition, prefer_raw=True)
+
         all_episode_returns.extend(ep_returns)
+
         gves = compute_gve(
             rewards=transition['rewards'],
             dones= transition['dones'],

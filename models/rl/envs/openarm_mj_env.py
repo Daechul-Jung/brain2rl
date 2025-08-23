@@ -2,7 +2,7 @@ import numpy as np, mujoco
 from gymnasium import spaces
 
 class OpenArmMjEnv:
-    """Minimal MuJoCo env wrapper for OpenArm (no ROS)."""
+    """Minimal MuJoCo env wrapper for OpenArm """
     def __init__(self, xml_path: str, horizon=300, render=False, action_scale=0.03):
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data  = mujoco.MjData(self.model)

@@ -120,11 +120,18 @@ class RePPOAgent:
         targets = batch['gve'].squeeze(-1) # Shape: (Batch, )
         truncated = batch['truncations'].squeeze(-1) # Shape: (Batch, )
         target_next_feature = batch['next_embedding'] # Shape: (Batch, )
-
         trunc_mask = (1.0 - truncated).to(observation_critic.dtype)
 
+        print(f'targets dim: {targets.shape}')
+        print(f'action_dim: {actions.shape}')
+        print(f'observation_critic dim: {observation_critic.shape}')
+        print(f'truncated: {truncated.shape}')
+
+        ## Getting q_target_distribution via hl_gauss
         with torch.no_grad():
             q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms)
+
+
         ## Getting Q-value from critic network 
         q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)
         log_probs = F.log_softmax(q_logit, dim = -1)
@@ -254,17 +261,6 @@ class RePPOAgent:
             rewards = _to_tensor(rewards, self.device).view(-1)
             shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
             action = _to_tensor(action, self.device)
-            # print(f'obs dim: {observation.unsqueeze(0).shape}\n'
-            #       f'cri_obs_dim: {critic_observation.unsqueeze(0).shape}\n'
-            #       f'action_dim: {action.unsqueeze(0).shape}\n'
-            #       f'log_prob_dim: {pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1).unsqueeze(0).shape}\n'
-            #       f'rewards: {shaped_reward.unsqueeze(-1).shape}\n'
-            #       f'raw_rewards: {rewards.unsqueeze(-1).shape}\n'
-            #       f'next_embedding:{next_features.unsqueeze(0).shape}\n', ### Target for aux loss is the next state encoder features
-            #       f'next_values: {next_value.unsqueeze(-1).shape}\n'
-            #       f'dones: {_to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1).shape}\n'
-            #       f'truncations: {_to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1).shape}\n'
-            #       )
 
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_value_batch, next_features_batch, dones_batch, truncated_batch = wrap_batch_dim(
                 observation, critic_observation, action, pi.log_prob(action).sum(-1), shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
@@ -285,21 +281,7 @@ class RePPOAgent:
                 },
                 batch_size=(N,),
             )
-            # td = TensorDict(
-            #     {
-            #         'observation': observation,
-            #         'critic_observation': critic_observation,
-            #         'actions': action,
-            #         'log_prob': pi.log_prob(action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1),
-            #         'rewards': shaped_reward.unsqueeze(-1),
-            #         'raw_rewards' : rewards.unsqueeze(-1),
-            #         'next_embedding': next_features.unsqueeze(0), ### Target for aux loss is the next state encoder features
-            #         'next_values': next_value.unsqueeze(-1),
-            #         'dones': _to_tensor(dones, self.device, dtype=torch.float32).unsqueeze(-1),
-            #         'truncations': _to_tensor(truncated, self.device, dtype = torch.float32).unsqueeze(-1)
-            #     },
-            #     batch_size=(N, )
-            # )
+
             trajectory.append(td)
             info_list.append(infos)
             

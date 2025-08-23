@@ -16,7 +16,7 @@ Brain2RL is an end-to-end pipeline that transforms brain signal data into robot 
 
 1. **Classification**: EEG data → Action classification
 2. **Tokenization**: Time series data → Tokens with Q/K/V matrices
-3. **RL Training**: Token-guided reinforcement learning
+3. **RL Training**: Relative Entropy Pairwise Policy Optimization reinforcement learning
 4. **Simulation**: OpenArm Project and Humanoid v-5
 
 The pipeline enables robots to learn from human brain signals, creating a direct brain-to-robot interface for complex manipulation tasks.
@@ -118,18 +118,15 @@ Trains OpenArm control using token-guided reinforcement learning.
 **Features:**
 - Token-guided policy networks
 - PPO, REPPO, and CoMic - Actor-Critic algorithm
-- Attention-based action selection
-- Comparison with baseline agents
 
 **Usage:**
 ```bash
 # Train RL agent
-python brain2rl/cli.py rl-training \
-    --token-data results/tokens.npz \
-    --episodes 1000 \
-    --algorithm ppo \
-    --model-path models/rl_agent.pth \
-    --plot-results
+python3 models/rl/practice/try_mj.py \
+  --algo reppo \
+  --sim mujoco \
+  --mjcf ~/brain2rl/external/openarm_mujoco/v1/scene.xml \
+  --render --steps 1000
 ```
 
 ### 4. Simulation Pipeline
@@ -155,64 +152,7 @@ Runs trained agents in OpenArm simulation in ROS2 with Gazebo.
 # 1. Prepare your EEG data (see Data Formats section)
 # Ensure data is in .npz format with 'data' and 'labels' arrays
 
-# 2. Run full pipeline
-python brain2rl/cli.py full \
-    --data-path data/eeg_motor_imagery.npz \
-    --output-dir results/eeg_experiment/ \
-
 # 3. Results will be saved in results/eeg_experiment/
-```
-
-### Example 2: Step-by-Step Pipeline Execution
-
-```bash
-# Step 1: Train classification model
-python brain2rl/cli.py classification \
-    --mode train \
-    --data-path data/eeg_data.npz \
-    --model-path models/eeg_classifier.pth \
-    --epochs 150 \
-    --n-channels 64 \
-    --n-classes 4
-
-# Step 2: Classify validation data
-python brain2rl/cli.py classification \
-    --mode classify \
-    --data-path data/eeg_validation.npz \
-    --model-path models/eeg_classifier.pth \
-    --output-path results/classified_validation.npz
-
-# Step 3: Train tokenizer
-python brain2rl/cli.py tokenization \
-    --mode train \
-    --classified-data results/classified_validation.npz \
-    --model-path models/eeg_tokenizer.pth \
-    --embedding-dim 256 \
-    --epochs 200
-
-# Step 4: Generate tokens
-python brain2rl/cli.py tokenization \
-    --mode tokenize \
-    --classified-data results/classified_validation.npz \
-    --model-path models/eeg_tokenizer.pth \
-    --output-path results/eeg_tokens.npz
-
-# Step 5: Train RL agent
-python brain2rl/cli.py rl-training \
-    --token-data results/eeg_tokens.npz \
-    --episodes 2000 \
-    --algorithm ppo \
-    --learning-rate 0.0003 \
-    --model-path models/eeg_rl_agent.pth
-
-# Step 6: Run simulation
-python brain2rl/cli.py simulation \
-    --model-path models/eeg_rl_agent.pth \
-    --token-data results/eeg_tokens.npz \
-    --episodes 20 \
-    --task manipulation \
-    --visualize \
-    --save-data results/simulation_data.npz
 ```
 
 ### Project Structure

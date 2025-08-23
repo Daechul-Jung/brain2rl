@@ -197,6 +197,15 @@ class Actor(nn.Module):
 def hl_gauss(input, vmin, vmax, num_atoms):
     """
     """
+    if input.dim() == 0:
+        input = input.view(1, 1)
+    elif input.dim() == 1:
+        input = input.unsqueeze(-1)        # [B] -> [B,1]
+    elif input.dim() == 2 and input.size(-1) == 1:
+        pass                       # already [B,1]
+    else:
+        raise ValueError(f"hl_gauss expects [B] or [B,1]; got {tuple(input.shape)}. "
+                         f"Did you pass a feature vector (e.g., 256-d)?")
     x = torch.clip(input, vmin, max = vmax)
     bin_width = (vmax - vmin) / (num_atoms - 1)
     sigma_to_final_sigma_ratio = 0.75
@@ -206,6 +215,7 @@ def hl_gauss(input, vmin, vmax, num_atoms):
         num_atoms + 1,
         device = input.device)
     sigma = bin_width * sigma_to_final_sigma_ratio
+        
     cdf_evals = torch.erf(
         (support.unsqueeze(0) - x).squeeze() /
         (torch.sqrt(torch.tensor(2.0)) * sigma + 1e-6)
