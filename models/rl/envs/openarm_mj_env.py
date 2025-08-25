@@ -1,16 +1,24 @@
 import numpy as np, mujoco
 from gymnasium import spaces
+import imageio.v2 as imageio
+
 
 class OpenArmMjEnv:
     """OpenArm (left arm) reaching a cup; optional camera observations."""
     def __init__(self, xml_path: str, horizon=300, render=False,
-                 action_scale=0.03, camera=None, camera_size=(64,64)):
+                 action_scale=0.03, camera=None, camera_size=(256,256), camera_in_info = True):
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data  = mujoco.MjData(self.model)
         self.horizon = horizon
         self.render  = render
         self.action_scale = action_scale
         self.t = 0
+
+        ##############################
+        cams = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_CAMERA, i) for i in range(self.model.ncam)]
+        print("Cameras:", cams)
+        ##########################
+
 
         # --- pick left-arm actuators ---
         self.left_actuators = []
@@ -32,6 +40,8 @@ class OpenArmMjEnv:
             hi_all = self.model.actuator_ctrlrange[:,1].astype(np.float32)
             lo_all = np.where(np.isfinite(lo_all), lo_all, -1.0)
             hi_all = np.where(np.isfinite(hi_all), hi_all,  1.0)
+
+
         else:
             lo_all = -np.ones(self.model.nu, np.float32)
             hi_all =  np.ones(self.model.nu, np.float32)
@@ -62,30 +72,52 @@ class OpenArmMjEnv:
                 self.viewer = None
 
         # offscreen camera for CV
-        self.camera_name = camera  # e.g., "overhead"
+        self.camera_name = camera  
         self.camera_size = tuple(camera_size)
         self.renderer = None
+        self.camera_in_info = camera_in_info
         if self.camera_name is not None:
+            if isinstance(self.camera_name, str):
+                self.cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, self.camera_name)
+                assert self.cam_id >= 0, f"Camera '{self.camera_name}' not found in XML."
+            else:
+                self.cam_id = int(self.camera_name)
             self.renderer = mujoco.Renderer(self.model, *self.camera_size)
-
     # ------------- helpers -------------
     def _cup_qpos_slice(self):
         jadr = self.model.jnt_qposadr[self.jid_cup_free]
-        return slice(jadr, jadr+7)  # freejoint: 7 dof (xyz + quat)
+        return slice(jadr, jadr+7)  
 
     def _ee(self):  return self.data.site_xpos[self.sid_left_ee].copy()
     def _cup(self): return self.data.site_xpos[self.sid_cup_top].copy()
 
+    def _get_pixels(self):
+        """Return HxWx3 uint8 RGB from the configured camera, or None."""
+        if self.renderer is None:
+            return None
+        self.renderer.update_scene(self.data, camera=self.cam_id)
+        rgb = self.renderer.render()                  
+        return rgb
+    
     def _get_obs(self):
         base = [self.data.qpos.ravel(), self.data.qvel.ravel(), self._ee(), self._cup()]
         obs = np.concatenate(base).astype(np.float32)
         if self.renderer is not None:
             self.renderer.update_scene(self.data, camera=self.camera_name)
-            rgb = self.renderer.render()
-            # If you need images in the observation, you can return them in info or
-            # append a flattened/latent representation here.
-        return obs
+            rgb = self.renderer.render()  ### Camera size (256, 256, 3)
+        
 
+        return obs
+    
+    def calculate_reward(self, info):
+        """
+        Should include pose estimation, distance between cup and arm, 
+        """
+
+        reward = 0
+
+        return reward
+    
     # ------------- RL API -------------
     def reset(self, seed=None, options=None):
         if seed is not None: np.random.seed(seed)
@@ -102,8 +134,14 @@ class OpenArmMjEnv:
         self.data.qvel[:] = 0.0
         for _ in range(10):
             mujoco.mj_step(self.model, self.data)
-
-        return self._get_obs(), {}
+        obs = self._get_obs()
+        info = {}
+        if self.camera_in_info:
+            pix = self._get_pixels()
+            if pix is not None:
+                info["pixels"] = pix
+                imageio.imwrite("camera_view.png", pix)
+        return obs, info
 
     def step(self, action):
         action = np.clip(action, self.action_space.low, self.action_space.high) * self.action_scale
@@ -115,6 +153,8 @@ class OpenArmMjEnv:
         cup = self._cup()
         dist = np.linalg.norm(ee - cup)
 
+
+        # reward = self.calculate_reward()
         # simple shaping towards the cup
         reward = -dist
         reward += 0.1*(0.2 - np.clip(dist, 0, 0.2))
@@ -127,3 +167,6 @@ class OpenArmMjEnv:
             self.viewer.sync()
 
         return self._get_obs(), float(reward), terminated, truncated, info
+
+
+    

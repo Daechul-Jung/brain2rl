@@ -9,11 +9,9 @@ from models.rl.envs.openarm_mj_env import OpenArmMjEnv
 
 def make_env(sim, mjcf, steps, render):
     if sim == "mujoco":
-        # from brain2rl.models.rl.envs.openarm_mj_env import OpenArmMjEnv
         xml = mjcf or os.path.expanduser("~/brain2rl/external/openarm_mujoco/v1/scene.xml")
-        return OpenArmMjEnv(xml_path=xml, horizon=steps, render=render)
+        return OpenArmMjEnv(xml_path=xml,camera='left_wrist_cam',camera_size=(256, 256) ,horizon=steps, render=render)
     else:
-        # your existing Gym env fallback
         import gymnasium as gym
         return gym.make("Humanoid-v5")
     

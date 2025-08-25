@@ -33,7 +33,7 @@ def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True)
     return ep_returns, ep_lengths
 
 
-def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1000, num_epoch = 1, 
+def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1000, num_epoch = 3, 
                 num_mini_batch = 4, logger: Optional[callable] = None, num_eval = 5, evaluate_func = None,render=False):
     
     device = agent.device
@@ -44,8 +44,8 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     total_updates = total_steps // (N_envs * num_step) + 1
     eval_interval = max(1, total_updates // (max(1, num_eval)))
     
-    reset_return = env.reset()
-    
+    reset_return, info = env.reset()
+    return
     observation  = reset_return[0] if isinstance(reset_return, tuple) else reset_return
     
     critic_observation = None 
@@ -126,6 +126,10 @@ def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
     for ep in range(num_episodes):
         # For every episode, reset the environment 
         state, info = env.reset()
+        for _ in range(5):
+            obs, r, term, trunc, info = env.step(env.action_space.sample())
+            img = info["pixels"]         # available every step
+            print(img)
         episode_reward = 0.0
         for t in range(max_steps):
             if render:
