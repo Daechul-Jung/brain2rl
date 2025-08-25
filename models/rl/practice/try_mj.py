@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     elif args.algo == "ppo":
         agent = PPOAgent(observation_dim=state_dim, action_dim=action_dim)
-        rewards = train_agent_with_buffer(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
+        rewards = train_agent(env, agent, num_episodes=10000, max_steps=10000)
 
         
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")

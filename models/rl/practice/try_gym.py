@@ -11,6 +11,10 @@ from models.rl.practice.agents.sac import SACAgent
 from models.rl.utils.train import train_agent, train_agent_with_buffer, train_reppo
 
 
+def compare_result(list_of_rewards):
+    for algo, rewards in list_of_rewards:
+        print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
+
 def render_agent(agent, env_name: str, episodes: int = 1):
     env = gym.make(env_name, render_mode="human")
     for _ in range(episodes):
@@ -63,8 +67,12 @@ def main():
     else :
         rewards = train_agent_with_buffer(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
+    agent2 = PPOAgent(state_dim, action_dim)
+    ppo_reward = train_agent(env, agent2, 1000, 10000)
+    
     agent.save('humanoid.pth')
     env.close()
+    compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
 
     render_agent(agent, args.env, episodes=args.episodes)
 
