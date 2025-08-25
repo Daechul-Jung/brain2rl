@@ -45,7 +45,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     eval_interval = max(1, total_updates // (max(1, num_eval)))
     
     reset_return, info = env.reset()
-    return
+
     observation  = reset_return[0] if isinstance(reset_return, tuple) else reset_return
     
     critic_observation = None 
