@@ -159,18 +159,21 @@ class RePPOAgent:
         entropy = -log_pi
 
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
+        
         # Actor objective 
         actor_obj = -q_scalar + temp.detach() * log_pi
         ## KL(new||old) using old policy sample 
+
+
         with torch.no_grad():
             # Sample from the old distribution
             old_pi = self._old_actor_dist(observation)
             old_sample = old_pi.sample((16, )).clamp(-1 + 1e-6, 1 - 1e-6)
             #### Should take a look the shape and how it looks like 
-            old_log_prob = old_pi.log_prob(old_sample).sum(-1) # Estimate the log probability with the given old distribuiton
+            old_log_prob = old_pi.log_prob(old_sample).sum(-1).mean(0) # Estimate the log probability with the given old distribuiton
         # Estimate the old log probability from the given new action distribution
-        new_log_prob = pi.log_prob(old_sample).sum(-1)
-        kl_est = (old_log_prob - new_log_prob).mean(0)
+        new_log_prob = pi.log_prob(old_sample).sum(-1).mean(0)
+        kl_est = (old_log_prob - new_log_prob)
         
         kl_bound = self.kl_bound
         clipped = torch.where(kl_est < kl_bound, actor_obj, kl_est * lagrange)
@@ -219,13 +222,14 @@ class RePPOAgent:
         critic_observation = _to_tensor(critic_observation, self.device)
 
         for _ in range(num_steps):
-            pi, _, temp, lagrange = self._actor_forward(observation)  ## As we know, temp and lagrange are scalar value
-            action = pi.sample()  ## 1 dimensional
-            # print(f'action: {action} and dimension: {action.shape}, {action.ndim}')
-            
-            action = action.clamp(-1 + 1e-6,  1 - 1e-6)
-            # action = pi.log_prob(action)
-            action = action.detach().cpu().numpy().astype(np.float32)
+            with torch.no_grad():
+                pi, _, temp, lagrange = self._actor_forward(observation)  ## As we know, temp and lagrange are scalar value
+                action = pi.sample()  ## 1 dimensional
+                
+                action_t = action.clamp(-1 + 1e-6,  1 - 1e-6) ### Warning: Do not confuse about log_prob and action. These are totally different   ## (action_dim, )
+                log_prob_torch = pi.log_prob(action_t).sum(-1) ### Scalar value 
+
+                action = action_t.detach().cpu().numpy().astype(np.float32)
             step_return = env.step(action)
 
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
@@ -242,12 +246,12 @@ class RePPOAgent:
             next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
 
             next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, next_action)
-            rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension
+            rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
             shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
             action = _to_tensor(action, self.device)
-            print(rewards)
+
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
-                observation, critic_observation, action, pi.log_prob(action).sum(-1), shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
+                observation, critic_observation, action, log_prob_torch, shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
             )
 
             td = TensorDict(

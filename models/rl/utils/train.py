@@ -128,8 +128,8 @@ def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
         state, info = env.reset()
         for _ in range(5):
             obs, r, term, trunc, info = env.step(env.action_space.sample())
-            img = info["pixels"]         # available every step
-            print(img)
+            # img = info["pixels"]         # available every step
+            # print(img)
         episode_reward = 0.0
         for t in range(max_steps):
             if render:
@@ -143,6 +143,7 @@ def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
                 action = low + 0.5 * (action + 1.0) * (high - low)
 
             next_state, reward, terminated, truncated, step_info = env.step(action)
+            print(reward)
             done = terminated or truncated
 
             agent.store_transition(state, action, reward, next_state, done, action_info)

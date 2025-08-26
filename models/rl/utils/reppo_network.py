@@ -130,24 +130,22 @@ class Critic(nn.Module):
         zeros = hl_gauss(torch.zeros(1, device=device), self.vmin, self.vmax, self.num_atoms)
         zeros.requires_grad = True
         self.zero_dist = nn.Parameter(
-            hl_gauss(torch.zeros(1, device=device), self.vmin, self.vmax, self.num_atoms)
+            hl_gauss(torch.zeros(1, device=device), self.vmin, self.vmax, self.num_atoms) ### (1, num_atoms)
         )
         
     def forward(self, observation, action):
         # Concatenate observation and action first over last dimension. Dimension shape is (Batch, observation or action dim)
         input = torch.cat([observation, action], dim = -1)
         ## Learn features via feature network (Encoding)
-        features = self.feature_module(input)
+        features = self.feature_module(input)  ### (hidden_dim, )
         ## Do prediction through prediction module
         next_pred_feature = self.pred_module(features)
         ## Getting logit through critic module
-        logit = self.critic_module(features) + 40.9 * self.zero_dist
-        print(logit)
-        
-        value_cat = torch.softmax(logit, dim = -1) ### (Batch, num_atoms)
-        
+        logit = self.critic_module(features) + 40.9 * self.zero_dist  ### (1, num_atoms)
+
+        value_cat = torch.softmax(logit, dim = -1) ### (Batch, num_atoms) = (1, num_atoms)
         ### Q-value = sum(p_i * z_i)
-        value = value_cat @ self.values  ### (Batch, num_atoms) @ (num_atoms, 1) -> (Batch, 1)
+        value = value_cat @ self.values  ### (Batch, num_atoms) @ (num_atoms, 1) -> (Batch, 1) = [1]
 
         return value, logit, next_pred_feature, features
     
@@ -197,41 +195,8 @@ class Actor(nn.Module):
         )
         return transformed_pi, torch.tanh(mean), torch.exp(self.log_temp), torch.exp(self.log_lagrange)
     
-# def hl_gauss(input, vmin, vmax, num_atoms):
-#     """
-#     """
-#     if input.dim() == 2 and input.size(-1) == 1:
-#         input = input.squeeze(-1)       # [B,1] -> [B]
-#     elif input.dim() != 1:
-#         raise ValueError(f"hl_gauss expects [B] or [B,1]; got {tuple(input.shape)}")
-    
 
-#     x = torch.clip(input, vmin, max = vmax)
-#     bin_width = (vmax - vmin) / (num_atoms - 1)
-#     sigma_to_final_sigma_ratio = 0.75
-
-#     support = torch.linspace(
-#         vmin - bin_width/2,
-#         vmax + bin_width/2,
-#         num_atoms + 1,
-#         device = input.device)
-    
-#     sigma = bin_width * sigma_to_final_sigma_ratio
-
-#     cdf_evals = torch.erf(
-#         (support.unsqueeze(0) - x).squeeze() /
-#         (torch.sqrt(torch.tensor(2.0)) * sigma + 1e-6)
-#     )
-    
-#     z = cdf_evals[..., -1] - cdf_evals[..., 0] 
-    
-#     target_probs = cdf_evals[..., 1:] - cdf_evals[..., :-1]
-#     target_probs = (target_probs / (z.unsqueeze(-1) + 1e-6)).reshape(
-#         *input.shape[:-1], num_atoms
-#     )
-#     return target_probs
 def hl_gauss(input, vmin, vmax, num_atoms):
-    # accept [B] or [B,1]; reject anything else
     if input.dim() == 2 and input.size(-1) == 1:
         x = input.squeeze(-1)   # [B]
     elif input.dim() == 1:

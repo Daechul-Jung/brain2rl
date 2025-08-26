@@ -65,7 +65,7 @@ def main():
 
    
     else :
-        rewards = train_agent_with_buffer(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
+        rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
     agent2 = PPOAgent(state_dim, action_dim)
     ppo_reward = train_agent(env, agent2, 1000, 10000)
