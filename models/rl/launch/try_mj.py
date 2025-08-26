@@ -1,9 +1,9 @@
 import argparse, os, sys
 import gymnasium as gym
 sys.path.append(os.path.join(os.path.dirname(__file__), 'models', 'rl'))
-from models.rl.practice.agents.reppo import *
-from models.rl.practice.agents.ppo import *
-from models.rl.practice.agents.sac import *
+from models.rl.agents.reppo import *
+from models.rl.agents.ppo import *
+from models.rl.agents.sac import *
 from models.rl.utils.train import train_reppo, train_agent_with_buffer, train_agent
 from models.rl.envs.openarm_mj_env import OpenArmMjEnv
 

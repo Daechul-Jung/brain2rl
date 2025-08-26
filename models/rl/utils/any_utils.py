@@ -1,7 +1,5 @@
 import torch
 
-import torch
-
 def _ensure_tensor(x, device=None, dtype=torch.float32):
     if torch.is_tensor(x):
         if device is not None and x.device != device:
