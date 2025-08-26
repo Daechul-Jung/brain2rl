@@ -28,6 +28,22 @@ class ReferenceEncoder(nn.Module):
         # TODO
         pass
 
+class LowLevelPolicy(nn.Module):
+    """π_LL(a | s, z) — simple Gaussian policy. """
+    def __init__(self, state_dim: int, z_dim: int, act_dim: int):
+        super().__init__()
+        # TODO: declare mu_net, logstd param
+
+    def dist(self, s: torch.Tensor, z: torch.Tensor) -> Normal:
+        """TODO: construct Normal distribution."""
+        # TODO
+        pass
+
+    def forward(self, s: torch.Tensor, z: torch.Tensor) -> Normal:
+        """Alias for dist."""
+        # TODO
+        pass
+
 class HighLevelPolicy(nn.Module):
     """Task-specific high-level policy: z ~ π_HL^{task}(·|o)."""
     def __init__(self, obs_dim: int, z_dim: int):

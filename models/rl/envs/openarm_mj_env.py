@@ -83,6 +83,7 @@ class OpenArmMjEnv:
             else:
                 self.cam_id = int(self.camera_name)
             self.renderer = mujoco.Renderer(self.model, *self.camera_size)
+            
     # ------------- helpers -------------
     def _cup_qpos_slice(self):
         jadr = self.model.jnt_qposadr[self.jid_cup_free]
