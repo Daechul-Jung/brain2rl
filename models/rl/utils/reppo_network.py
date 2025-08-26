@@ -111,6 +111,7 @@ class Critic(nn.Module):
             layers = head_layers,
             device = device
         )
+        
         ## Prediction module network for getting next feature
         self.pred_module = FCNN(
             in_feature=hidden_dim,
@@ -141,10 +142,12 @@ class Critic(nn.Module):
         next_pred_feature = self.pred_module(features)
         ## Getting logit through critic module
         logit = self.critic_module(features) + 40.9 * self.zero_dist
-
-        ## Concatenate value
-        value_cat = torch.softmax(logit, dim = -1)
-        value = value_cat @ self.values
+        print(logit)
+        
+        value_cat = torch.softmax(logit, dim = -1) ### (Batch, num_atoms)
+        
+        ### Q-value = sum(p_i * z_i)
+        value = value_cat @ self.values  ### (Batch, num_atoms) @ (num_atoms, 1) -> (Batch, 1)
 
         return value, logit, next_pred_feature, features
     

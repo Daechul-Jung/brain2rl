@@ -15,30 +15,13 @@ from models.rl.utils.reppo_network import *
 from models.rl.utils.any_utils import (compute_gve, _ensure_batch, _env_shape, _split_step_return, _to_tensor, wrap_batch_dim)
 
 """
-This algorithm is Relative Entropy Pairwise Policy Optimization (RePPO)
+This algorithm is Relative Entropy Pairwise Policy Optimization (REPPO)
 This is on-policy and actor-critic alogrithm and train robust surrogate value function and effectively use pairwise policy gradient.
 Build Maximum entropy framework and combines with a principled KL regularization, 
 Categorical Q-Learning, Appropriately normalized neural network architecture and auxilary task
 Show how a joint entropy and policy deviation tuning objective can address the twin problems of sufficient exploration and controlled policy update 
 According to the paper, it does not utilize the replay buffer
 """
-
-
-@dataclass(slots=True)
-class TrainState:
-    device: torch.device
-    obs: torch.Tensor
-    critic_obs: torch.Tensor
-    actor: Actor
-    old_actor: Actor
-    critic: Critic
-    # normalizer: EmpiricalNormalization
-    # critic_normalizer: EmpiricalNormalization
-    actor_optimizer: optim.Optimizer
-    critic_optimizer: optim.Optimizer
-    # scaler: GradScaler
-
-
 
 class RePPOAgent:
     def __init__(self, observation_dim, action_dim, num_atoms = 101, 
@@ -124,24 +107,16 @@ class RePPOAgent:
         target_next_feature = batch['next_embedding'] # Shape: (Batch, )
         trunc_mask = (1.0 - truncated).to(observation_critic.dtype)
 
-        # print(f'targets shape: {batch["gve"].squeeze(-1).shape}')
-        # # targets = batch['raw_rewards'] + self.gamma * (1- batch['dones']) * batch['next_values']
-        # # targets = targets.squeeze(-1)
-        # # targets = targets.sum(-1)
-        # # print(f'target after calculation: {targets}')
-        # print(f'targets dim: {targets.shape}')
-        # print(f'action_dim: {actions.shape}')
-        # print(f'observation_critic dim: {observation_critic.shape}')
-        # print(f'truncated: {truncated.shape}')
-
         ## Getting q_target_distribution via hl_gauss
         with torch.no_grad():
-            q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms) ### Shape of (B, 256, num_atoms)
+            q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms) 
 
         ## Getting Q-value from critic network 
+        ## Q(s, a), logits, next_pred, features
         q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)  ## Return value, logit, next_
         log_probs = F.log_softmax(q_logit, dim = -1)
 
+        ## Calculate cross-entropy loss between q_target_dist and log_probs
         ce = -(q_target_dist * log_probs).sum(-1) # 
 
         emb_loss = F.mse_loss(next_pred, target_next_feature, reduction='none').mean(dim=-1) ## (B, )
@@ -270,7 +245,7 @@ class RePPOAgent:
             rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension
             shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
             action = _to_tensor(action, self.device)
-
+            print(rewards)
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
                 observation, critic_observation, action, pi.log_prob(action).sum(-1), shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
             )
