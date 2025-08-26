@@ -13,7 +13,7 @@ from models.rl.utils.train import train_agent, train_agent_with_buffer, train_re
 
 def compare_result(list_of_rewards):
     for algo, rewards in list_of_rewards:
-        print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
+        print(f"{algo}: \nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
 
 def render_agent(agent, env_name: str, episodes: int = 1):
     env = gym.make(env_name, render_mode="human")
@@ -21,7 +21,7 @@ def render_agent(agent, env_name: str, episodes: int = 1):
         state, info = env.reset()
         done = False
         while not done:
-            action = agent.get_action(state, training=False)
+            action, _ = agent.get_action(state, training=False)
             if isinstance(env.action_space, gym.spaces.Box):
                 low, high = env.action_space.low, env.action_space.high
                 action = low + 0.5 * (action + 1.0) * (high - low)
@@ -68,11 +68,11 @@ def main():
         rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
     agent2 = PPOAgent(state_dim, action_dim)
-    ppo_reward = train_agent(env, agent2, 1000, 10000)
+    # ppo_reward = train_agent(env, agent2, 1000, 10000)
     
     agent.save('humanoid.pth')
     env.close()
-    compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
+    # compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
 
     render_agent(agent, args.env, episodes=args.episodes)
 

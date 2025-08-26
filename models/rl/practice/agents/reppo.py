@@ -165,7 +165,7 @@ class RePPOAgent:
         ## KL(new||old) using old policy sample 
 
 
-        with torch.no_grad():
+        with torch.inference_mode():
             # Sample from the old distribution
             old_pi = self._old_actor_dist(observation)
             old_sample = old_pi.sample((16, )).clamp(-1 + 1e-6, 1 - 1e-6)
@@ -202,7 +202,6 @@ class RePPOAgent:
         }
 
     
-    @torch.no_grad()
     def collect(self, env: gym.Env, observation: Optional[torch.Tensor], critic_observation: Optional[torch.Tensor], num_steps = 10000):
         """
         On-policy rollout and return (transition tensordict, final_obs, final_critic_obs, infos)
@@ -222,7 +221,7 @@ class RePPOAgent:
         critic_observation = _to_tensor(critic_observation, self.device)
 
         for _ in range(num_steps):
-            with torch.no_grad():
+            with torch.inference_mode():
                 pi, _, temp, lagrange = self._actor_forward(observation)  ## As we know, temp and lagrange are scalar value
                 action = pi.sample()  ## 1 dimensional
                 
@@ -237,18 +236,20 @@ class RePPOAgent:
 
             _next_observation = _to_tensor(next_observation, self.device)
             _next_critic_observation = _to_tensor(next_critic_observation, self.device)
-            next_pi, _, next_temp, next_lagran = self._actor_forward(_next_observation)
 
-            next_action = next_pi.sample()
-            next_action = _to_tensor(next_action, self.device)
-            
-            ### Take sum over batch dimension
-            next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
+            with torch.inference_mode():
+                next_pi, _, next_temp, next_lagran = self._actor_forward(_next_observation)
 
-            next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, next_action)
-            rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
-            shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
-            action = _to_tensor(action, self.device)
+                next_action = next_pi.sample()
+                next_action = _to_tensor(next_action, self.device)
+                
+                ### Take sum over batch dimension
+                next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
+
+                next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, next_action)
+                rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
+                shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
+                action = _to_tensor(action, self.device)
 
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
                 observation, critic_observation, action, log_prob_torch, shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
@@ -293,7 +294,7 @@ class RePPOAgent:
         self.actor.train()
 
         # remove batch dim, move to CPU, ensure float32 numpy
-        return action_t.squeeze(0).cpu().numpy().astype(np.float32)
+        return action_t.squeeze(0).cpu().numpy().astype(np.float32), ...
     
 
     @torch.no_grad()
