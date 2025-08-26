@@ -89,8 +89,8 @@ class OpenArmMjEnv:
         jadr = self.model.jnt_qposadr[self.jid_cup_free]
         return slice(jadr, jadr+7)  
 
-    def _ee(self):  return self.data.site_xpos[self.sid_left_ee].copy()
-    def _cup(self): return self.data.site_xpos[self.sid_cup_top].copy()
+    def _ee(self):  return self.data.site_xpos[self.sid_left_ee].copy() ### End effector position
+    def _cup(self): return self.data.site_xpos[self.sid_cup_top].copy() ### Cup top position
 
     def _get_pixels(self):
         """Return HxWx3 uint8 RGB from the configured camera, or None."""
