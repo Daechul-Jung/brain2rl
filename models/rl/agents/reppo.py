@@ -36,7 +36,7 @@ class RePPOAgent:
         self.vmax = vmax
         self.gamma = gamma
         self.lmbda = lmbda
-        
+        self.entropy_target_mult = 0.1
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
@@ -74,7 +74,7 @@ class RePPOAgent:
         pi, mean, temp, lagrange = self.actor(observation)
         return pi, mean, temp, lagrange
     
-    def _old_actor_dist(self, observation):
+    def _old_actor_forward(self, observation):
         """
         Based on the observation with old actor network, getting old pi distribution
         """
@@ -148,7 +148,7 @@ class RePPOAgent:
         observation = batch['observation']
         observation_critic = batch['critic_observation']
         ## Get action distribution, mean, entropy, and kl-regulation from actor network 
-        pi, mean, temp, lagrange = self._actor_forward(observation=observation) 
+        pi, mean, temp, lagrange = self._actor_forward(observation) 
         # Then resample the action from the distribution(Transformed)
         actions = pi.rsample() # Shape: (Batch, Action)
 
@@ -160,47 +160,50 @@ class RePPOAgent:
 
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
         
-        # Actor objective 
-        actor_obj = -q_scalar + temp.detach() * log_pi
+        
         ## KL(new||old) using old policy sample 
-
-
         with torch.inference_mode():
             # Sample from the old distribution
-            old_pi = self._old_actor_dist(observation)
+            old_pi = self._old_actor_forward(observation)
             old_sample = old_pi.sample((16, )).clamp(-1 + 1e-6, 1 - 1e-6)
             #### Should take a look the shape and how it looks like 
             old_log_prob = old_pi.log_prob(old_sample).sum(-1).mean(0) # Estimate the log probability with the given old distribuiton
         # Estimate the old log probability from the given new action distribution
         new_log_prob = pi.log_prob(old_sample).sum(-1).mean(0)
-        kl_est = (old_log_prob - new_log_prob)
+        kl = (new_log_prob - old_log_prob) #(old_log_prob - new_log_prob)
+        
+        policy_loss = -q_scalar + temp.detach() * log_pi + lagrange.detach() * kl
+        
+        H = entropy.detach().mean()
+        H_target = -float(self.action_dim) * self.entropy_target_mult
         
         kl_bound = self.kl_bound
-        clipped = torch.where(kl_est < kl_bound, actor_obj, kl_est * lagrange)
+        clipped = torch.where(kl < kl_bound, policy_loss, kl * lagrange)
 
         ### entropy temperature and KL-Lagrangian terms and loss 
-        target_entropy = observation.new_tensor(observation.shape[-1])
+        # target_entropy = observation.new_tensor(observation.shape[-1])
 
-        entropy_loss = (target_entropy + entropy).detach().mean() * temp
+        entropy_loss = (H_target + H).detach().mean() * temp
 
-        lagrangian = - lagrange * (kl_est - kl_bound).mean().detach()
-        total_loss = clipped.mean() + entropy_loss + lagrangian
+        lagrangian = - lagrange * (kl - kl_bound).detach().mean()
+        # total_loss = clipped.mean() + entropy_loss + lagrangian
+        total_loss = policy_loss + entropy_loss + lagrangian
         self.actor_optimizer.zero_grad(set_to_none=True)
 
         total_loss.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
 
         self.actor_optimizer.step()
+        
         return {
             "actor_loss": total_loss.detach(),
-            "kl": kl_est.mean().detach(),
+            "kl": kl.mean().detach(),
             "entropy": entropy.mean().detach(),
             "temperature": temp.detach(),
             "lagrangian": lagrange.detach(),
             "entropy_loss": entropy_loss.detach(),
             "lagrangian_loss": lagrangian.detach(),
         }
-
     
     def collect(self, env: gym.Env, observation: Optional[torch.Tensor], critic_observation: Optional[torch.Tensor], num_steps = 10000):
         """
@@ -222,14 +225,15 @@ class RePPOAgent:
 
         for _ in range(num_steps):
             with torch.inference_mode():
-                pi, _, temp, lagrange = self._actor_forward(observation)  ## As we know, temp and lagrange are scalar value
-                action = pi.sample()  ## 1 dimensional
+                #pi, _, temp, lagrange = self._actor_forward(observation)  ## This is original version from the author but different from what it is described in the paper
+                old_pi, _, old_temp, old_lagrange = self._old_actor_forward(observation)  ## As we know, temp and lagrange are scalar value
+                old_action = old_pi.sample()  ## 1 dimensional
                 
-                action_t = action.clamp(-1 + 1e-6,  1 - 1e-6) ### Warning: Do not confuse about log_prob and action. These are totally different   ## (action_dim, )
-                log_prob_torch = pi.log_prob(action_t).sum(-1) ### Scalar value 
+                old_action_t = old_action.clamp(-1 + 1e-6,  1 - 1e-6) ### Warning: Do not confuse about log_prob and action. These are totally different   ## (action_dim, )
+                old_log_prob_torch = old_pi.log_prob(old_action_t).sum(-1) ### Scalar value 
 
-                action = action_t.detach().cpu().numpy().astype(np.float32)
-            step_return = env.step(action)
+                old_action = old_action_t.detach().cpu().numpy().astype(np.float32)
+            step_return = env.step(old_action)
 
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
             next_critic_observation = next_observation
@@ -238,21 +242,21 @@ class RePPOAgent:
             _next_critic_observation = _to_tensor(next_critic_observation, self.device)
 
             with torch.inference_mode():
-                next_pi, _, next_temp, next_lagran = self._actor_forward(_next_observation)
+                old_next_pi, _, old_next_temp, old_next_lagran = self._old_actor_forward(_next_observation)
 
-                next_action = next_pi.sample()
-                next_action = _to_tensor(next_action, self.device)
+                old_next_action = old_next_pi.sample()
+                old_next_action = _to_tensor(old_next_action, self.device)
                 
                 ### Take sum over batch dimension
-                next_log_prob = next_pi.log_prob(next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
+                old_next_log_prob = old_next_pi.log_prob(old_next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
 
-                next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, next_action)
+                next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, old_next_action)
                 rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
-                shaped_reward = rewards - self.gamma * next_log_prob * (next_temp if torch.is_tensor(next_temp) else float(next_temp))
+                shaped_reward = rewards - self.gamma * old_next_log_prob * (old_next_temp if torch.is_tensor(old_next_temp) else float(old_next_temp))
                 action = _to_tensor(action, self.device)
 
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
-                observation, critic_observation, action, log_prob_torch, shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
+                observation, critic_observation, action, old_log_prob_torch, shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
             )
 
             td = TensorDict(

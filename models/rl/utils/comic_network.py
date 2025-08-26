@@ -16,6 +16,10 @@ class MLP(nn.Module):
         # TODO
         pass
 
+class FCNN(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim):
+        super().__init__()
+
 
 class ReferenceEncoder(nn.Module):
     """π_HL(z | s, s_ref) -> Normal distribution over latent z."""

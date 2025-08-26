@@ -6,10 +6,10 @@ class OnPolicyAC:
     """Minimal on-policy actor-critic with latent KL regularizer."""
     def __init__(
         self,
-        encoder, # ReferenceEncoder
-        low_level_policy, # LowLevelPolicy (or mixture/product)
-        value_fn, # MultiHeadValue
-        enc_opt, low_opt, v_opt,
+        encoder, ## ReferenceEncoder
+        low_level_policy, ## LowLevelPolicy (or mixture/product)
+        value_fn, ## MultiHeadValue
+        enc_opt, low_opt, v_opt, ## Encoder, low-level, value optimizer
         beta: float = 1e-4,
         gamma: float = 0.99,
         lam: float = 0.95,

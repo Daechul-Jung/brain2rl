@@ -1,6 +1,8 @@
-from models.rl.practice.agents.ppo import *
+import torch
+from tensordict import TensorDict
+from models.rl.agents.ppo import *
 import gymnasium as gym
-from models.rl.practice.agents.reppo import *
+from models.rl.agents.reppo import *
 from typing import Optional
 
 ######################## Training REPPO ###################################
@@ -97,7 +99,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
                 
         ## syncronize old actor
         with torch.no_grad():
-            for p,q in zip(agent.old_actor.parameters(), agent.old_actor.parameters()):
+            for p,q in zip(agent.actor.parameters(), agent.old_actor.parameters()):
                 q.data.copy_(p.data)
                 
         if evaluate_func and (global_update % eval_interval == 0):

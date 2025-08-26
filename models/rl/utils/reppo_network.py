@@ -135,15 +135,19 @@ class Critic(nn.Module):
         
     def forward(self, observation, action):
         # Concatenate observation and action first over last dimension. Dimension shape is (Batch, observation or action dim)
-        input = torch.cat([observation, action], dim = -1)
+        input = torch.cat([observation, action], dim = -1) ## (Batch, observation_dim _action_dim)
         ## Learn features via feature network (Encoding)
         features = self.feature_module(input)  ### (hidden_dim, )
         ## Do prediction through prediction module
         next_pred_feature = self.pred_module(features)
+        
         ## Getting logit through critic module
+        ## Logit is nunormalized scores over num_atoms that supports value = linspace(vmin, vmax, num_atoms)
         logit = self.critic_module(features) + 40.9 * self.zero_dist  ### (1, num_atoms)
 
+        ## This softmax is for getting categorical distribution P(s,a) over num_atoms
         value_cat = torch.softmax(logit, dim = -1) ### (Batch, num_atoms) = (1, num_atoms)
+        
         ### Q-value = sum(p_i * z_i)
         value = value_cat @ self.values  ### (Batch, num_atoms) @ (num_atoms, 1) -> (Batch, 1) = [1]
 
