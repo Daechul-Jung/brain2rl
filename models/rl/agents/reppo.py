@@ -26,7 +26,7 @@ According to the paper, it does not utilize the replay buffer
 class RePPOAgent:
     def __init__(self, observation_dim, action_dim, num_atoms = 101, 
                  vmin=-250, vmax=250, device='cuda',
-                 lr = 3e-4, gamma = 0.99, kl_start = 0.1, entropy_start = 0.1,
+                 lr = 3e-4, gamma = 0.99, kl_start = 0.01, entropy_start = 0.01,
                  lmbda = 0.95):
         super().__init__()
         
@@ -35,8 +35,11 @@ class RePPOAgent:
         self.vmin = vmin
         self.vmax = vmax
         self.gamma = gamma
+        self.kl_target = 0.5
+        self.entropy_target = 0.5 * action_dim
+        self.kl_start = kl_start
+        self.entropy_start = entropy_start
         self.lmbda = lmbda
-        self.entropy_target_mult = 0.1
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
@@ -175,19 +178,19 @@ class RePPOAgent:
         policy_loss = -q_scalar + temp.detach() * log_pi + lagrange.detach() * kl
         
         H = entropy.detach().mean()
-        H_target = -float(self.action_dim) * self.entropy_target_mult
+        H_target = self.entropy_target
         
         kl_bound = self.kl_bound
-        clipped = torch.where(kl < kl_bound, policy_loss, kl * lagrange)
+        # clipped = torch.where(kl < kl_bound, policy_loss, kl * lagrange)
 
         ### entropy temperature and KL-Lagrangian terms and loss 
         # target_entropy = observation.new_tensor(observation.shape[-1])
 
-        entropy_loss = (H_target + H).detach().mean() * temp
+        entropy_loss = (H - H_target).detach().mean() * temp
 
-        lagrangian = - lagrange * (kl - kl_bound).detach().mean()
+        lagrangian_loss = - lagrange * (kl - self.kl_target).detach().mean()
         # total_loss = clipped.mean() + entropy_loss + lagrangian
-        total_loss = policy_loss + entropy_loss + lagrangian
+        total_loss = policy_loss + entropy_loss + lagrangian_loss
         self.actor_optimizer.zero_grad(set_to_none=True)
 
         total_loss.backward()
@@ -202,7 +205,7 @@ class RePPOAgent:
             "temperature": temp.detach(),
             "lagrangian": lagrange.detach(),
             "entropy_loss": entropy_loss.detach(),
-            "lagrangian_loss": lagrangian.detach(),
+            "lagrangian_loss": lagrangian_loss.detach(),
         }
     
     def collect(self, env: gym.Env, observation: Optional[torch.Tensor], critic_observation: Optional[torch.Tensor], num_steps = 10000):
