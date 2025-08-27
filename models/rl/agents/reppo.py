@@ -156,24 +156,22 @@ class RePPOAgent:
         actions = pi.rsample() # Shape: (Batch, Action)
 
         actions_for_log = torch.clamp(actions, -1 + 1e-6, 1 - 1e-6) 
-
         log_pi = pi.log_prob(actions_for_log).sum(-1)
 
         entropy = -log_pi
-        a_new = pi.rsample((16,))
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
+
+        a_new = pi.rsample((16,))
         logp_new = pi.log_prob(a_new.clamp(-1+1e-6, 1-1e-6)).sum(-1)
         
         ## KL(new||old) using old policy sample 
         with torch.no_grad():
             # Sample from the old distribution
             old_pi, _, _, _ = self._old_actor_forward(observation)
-            old_sample = old_pi.sample((16, )).clamp(-1 + 1e-6, 1 - 1e-6)
-            #### Should take a look the shape and how it looks like 
-            old_log_prob = old_pi.log_prob(a_new).sum(-1).mean(0) # Estimate the log probability with the given old distribuiton
+            old_log_prob = old_pi.log_prob(a_new).sum(-1) # Estimate the log probability with the given old distribuiton
 
 
-        kl = (logp_new - old_log_prob)
+        kl = (logp_new - old_log_prob).mean(0)
         
         policy_loss = (-q_scalar + temp.detach() * log_pi + lagrange.detach() * kl).mean()
         

@@ -192,10 +192,13 @@ class Actor(nn.Module):
     def forward(self, observation):
         x = self.model(observation)
         mean, log_std = torch.split(x, x.shape[-1]//2, dim=-1)
+        LOG_STD_MIN, LOG_STD_MAX = -5.0, 2.0      # tweakable; [-7, 1] also common
+        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
         std = torch.exp(log_std) + self.min_std
+
         pi = Normal(mean, std, validate_args=False)
         transformed_pi = torch.distributions.TransformedDistribution(
-            pi, [torch.distributions.TanhTransform()]
+            pi, [torch.distributions.TanhTransform(cache_size=1)]
         )
         return transformed_pi, torch.tanh(mean), torch.exp(self.log_temp), torch.exp(self.log_lagrange)
     
