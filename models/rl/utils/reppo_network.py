@@ -101,7 +101,7 @@ class Critic(nn.Module):
         ## Critic module network for getting logit from feature which is calculated from feature module, return critic value
         self.critic_module = FCNN(
             in_feature=hidden_dim,
-            out_feature=1,
+            out_feature=num_atoms,  ## originally 1
             hidden_dim=hidden_dim,
             hidden_activation='swish',
             output_activation=None,
@@ -143,7 +143,7 @@ class Critic(nn.Module):
         
         ## Getting logit through critic module
         ## Logit is nunormalized scores over num_atoms that supports value = linspace(vmin, vmax, num_atoms)
-        logit = self.critic_module(features) + 40.9 * self.zero_dist  ### (1, num_atoms)
+        logit = self.critic_module(features) + 50 * self.zero_dist  ### (1, num_atoms)
 
         ## This softmax is for getting categorical distribution P(s,a) over num_atoms
         value_cat = torch.softmax(logit, dim = -1) ### (Batch, num_atoms) = (1, num_atoms)
@@ -158,7 +158,7 @@ class Actor(nn.Module):
     def __init__(self, observation_dim, action_dim, 
                  entropy_start: float, kl_start: float,
                  hidden_dim = 256, use_norm = True, 
-                 layers =3, min_std = 0.1, device = None):
+                 layers = 4, min_std = 0.1, device = None):
         super().__init__()
         ### Actor model for getting probability including mean and std. By using this, making distribution and get action
 

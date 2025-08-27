@@ -56,7 +56,7 @@ def main():
     state_dim = obs_space.shape[0]
     action_dim = act_space.shape[0]
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    agent = PPOAgent(state_dim, action_dim) if args.algo == 'ppo' else RePPOAgent(state_dim, action_dim)
+    print(device)
     if args.algo == "reppo":
         obs_normalizer = EmpiricalNormalizer(shape=state_dim, device=device)
         critic_obs_normalizer = EmpiricalNormalizer(shape=state_dim, device=device)

@@ -24,8 +24,8 @@ According to the paper, it does not utilize the replay buffer
 """
 
 class RePPOAgent:
-    def __init__(self, observation_dim, action_dim, num_atoms = 101, 
-                 vmin=-250, vmax=250, device='cuda',
+    def __init__(self, observation_dim, action_dim, num_atoms = 151,  ### num_atoms (51 ~ 151)
+                 vmin= -2000, vmax=4000, device='cuda',
                  lr = 3e-4, gamma = 0.99, kl_start = 0.01, entropy_start = 0.01,
                  lmbda = 0.95, obs_normalizer= None , critic_obs_normalizer = None):
         
@@ -33,19 +33,21 @@ class RePPOAgent:
         self.vmin = vmin
         self.vmax = vmax
         self.gamma = gamma
-        self.kl_target = 0.1
-        self.entropy_target = 0.5 * action_dim
+
         self.kl_start = kl_start
         self.entropy_start = entropy_start
         self.lmbda = lmbda
+
+        self.entropy_target = 0.2 * action_dim   # was 0.5 * action_dim (too high)
+        self.kl_bound = 0.1                      # was 0.1 (too tight)
+        self.kl_target = 0.75  #### previous 0.25 and try 0.5, 0.75 
+
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
         self.device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
         self.aux_loss_mult = 1.0
-        self.max_grad_norm = 1.0
-        self.kl_bound = 0.1
-        print(self.device)
+        self.max_grad_norm = 0.5
         self.actor_kl_clip_mode = "clipped"
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim=observation_dim,
@@ -56,14 +58,17 @@ class RePPOAgent:
         self.old_actor = copy.deepcopy(self.actor).to(self.device)
         self.critic = Critic(observation_dim=observation_dim, 
                              action_dim=action_dim,
-                             hidden_dim=1024, 
+                             hidden_dim=512, 
                              num_atoms=num_atoms, 
                              vmin=vmin, vmax=vmax, 
                              device=self.device)
-        self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr)
-        self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr)
+        
+        self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr, betas=(0.9,0.999), eps=1e-5)
+        self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr, betas=(0.9, 0.999), eps=1e-5)
+
         self.observation_normalizer = obs_normalizer
         self.critic_observation_normalizer = critic_obs_normalizer
+
     def _actor_forward(self, observation):
         """
         Forward pass for the actor network
@@ -166,43 +171,64 @@ class RePPOAgent:
         # actor_loss = -q_scalar + temp.detach() * log_prob
         
         ## KL(new||old) using old policy sample 
+        ######################## Original ################################
         # Sample from the old distribution
-        old_pi, _, _, _ = self._old_actor_forward(observation)
-        old_pi_action = old_pi.sample((16, )).clip(-1 + 1e-6, 1 - 1e-6)
-        old_log_prob = old_pi.log_prob(old_pi_action).sum(-1) # Estimate the log probability with the given old distribuiton
-        new_pi_log_prob = pi.log_prob(old_pi_action).sum(-1)
+        # old_pi, _, _, _ = self._old_actor_forward(observation)
+        # old_pi_action = old_pi.sample((16, )).clip(-1 + 1e-6, 1 - 1e-6)
+        # old_log_prob = old_pi.log_prob(old_pi_action).sum(-1) # Estimate the log probability with the given old distribuiton
+        # new_pi_log_prob = pi.log_prob(old_pi_action).sum(-1)
 
-        kl = (new_pi_log_prob - old_log_prob).mean(0)
-        # a_new = pi.rsample((16,)).clamp(-1+1e-6, 1-1e-6)
-        # logp_new = pi.log_prob(a_new).sum(-1)  # [K,B]
-        # with torch.no_grad():
-        #     old_pi, _, _, _ = self._old_actor_forward(observation)
-        #     logp_old = old_pi.log_prob(a_new).sum(-1)  # [K,B]
-        # kl = (logp_new - logp_old).mean(0)  # [B]
+        # kl = (new_pi_log_prob - old_log_prob).mean(0)
+        ################################################################
 
+        ##################### Fixed ###############################
+        EPS, K = 1e-6, 16
+        a_new = pi.rsample((K,)).clamp(-1+EPS, 1-EPS)
+        logp_new = pi.log_prob(a_new).sum(-1)  # [K,B]
+        with torch.no_grad():
+            old_pi, _, _, _ = self._old_actor_forward(observation)
+            logp_old = old_pi.log_prob(a_new).sum(-1)  # [K,B]
+        kl = (logp_new - logp_old).mean(0)  # [B]
+        ###############################################################
         actor_loss = (-q_scalar + temp.detach()*log_prob + lagrange.detach()*kl).mean()
 
         # optional hinge on KL overflow (additive, do NOT replace)
         kl_over = torch.relu(kl - self.kl_bound).mean()
         actor_loss = actor_loss + lagrange.detach() * kl_over
 
-        # if self.actor_kl_clip_mode == "clipped":                                        
-        #     actor_loss = torch.where(
-        #         kl < self.kl_bound, actor_loss, kl * lagrange
-        #     ).mean()
-        # elif self.actor_kl_clip_mode == "full":
-        #     actor_loss = actor_loss + kl * lagrange.detach()
+        if self.actor_kl_clip_mode == "clipped":                                        
+            actor_loss = torch.where(
+                kl < self.kl_bound, actor_loss, kl * lagrange
+            ).mean()
+        elif self.actor_kl_clip_mode == "full":
+            actor_loss = actor_loss + kl * lagrange.detach()
 
-        # elif self.actor_kl_clip_mode == "value":
-        #     actor_loss = actor_loss
+        elif self.actor_kl_clip_mode == "value":
+            actor_loss = actor_loss
 
-        
+        ######################### Original ##############################
+        # H = entropy.detach().mean()
+
+        # entropy_loss = temp * (self.entropy_target - H.detach().mean())
+        # lagrangian_loss = - lagrange * (kl - self.kl_target).detach().mean()
+        # # total_loss = clipped.mean() + entropy_loss + lagrangian_loss
+        # total_loss = actor_loss + entropy_loss + lagrangian_loss
+        ##############################################################
+
+        ####################### Fixed ################################
+        base = -q_scalar + temp.detach() * log_prob
+        actor_loss = (base + lagrange.detach() * kl).mean()
+
+        # OPTIONAL: additive hinge when KL > bound (do not replace the objective)
+        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_bound).mean()
+
+        # temperature (α) and lagrange (β) updates (correct signs)
         H = entropy.detach().mean()
+        entropy_loss    = temp      * (self.entropy_target - H)             # drives α up if H < target
+        lagrangian_loss = -lagrange * (kl - self.kl_target).detach().mean() # drives β up if KL > target
 
-        entropy_loss = temp * (self.entropy_target - H.detach().mean())
-        lagrangian_loss = - lagrange * (kl - self.kl_target).detach().mean()
-        # total_loss = clipped.mean() + entropy_loss + lagrangian_loss
         total_loss = actor_loss + entropy_loss + lagrangian_loss
+
         self.actor_optimizer.zero_grad(set_to_none=True)
 
         total_loss.backward()
@@ -249,8 +275,12 @@ class RePPOAgent:
                 old_log_prob_torch = old_pi.log_prob(old_action_t).sum(-1) ### Scalar value 
                 old_action = old_action_t.detach().cpu().numpy().astype(np.float32)
 
-            step_return = env.step(old_action)
+            if isinstance(env.action_space, gym.spaces.Box):
+                low, high = env.action_space.low, env.action_space.high
+                if not (np.allclose(low, -1.0) and np.allclose(high, 1.0)):
+                    old_action_np = low + 0.5 * (old_action + 1.0) * (high - low)
 
+            step_return = env.step(old_action_np)
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
             next_critic_observation = next_observation
 
@@ -270,10 +300,10 @@ class RePPOAgent:
                 ### Take sum over batch dimension
                 old_next_log_prob = old_next_pi.log_prob(old_next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
 
-                next_value, _, next_pred_unused, next_features = self._critic_forward(next_norm_critic_obs, old_next_action)
+                next_value, _, _, next_features = self._critic_forward(next_norm_critic_obs, old_next_action)
                 rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
 
-                shaped_reward = rewards - old_next_log_prob * old_next_temp
+                shaped_reward = rewards - self.gamma * old_next_log_prob * old_next_temp
                 old_action = _to_tensor(old_action, self.device)
 
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(

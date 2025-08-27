@@ -14,6 +14,7 @@ def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True)
     """
     key = "raw_rewards" if prefer_raw and "raw_rewards" in transition.keys(True) else "rewards"
     rewards = transition[key].squeeze(-1)           # (T, N)
+    rewards = transition['rewards'].squeeze(-1)
     dones   = transition["dones"].squeeze(-1).bool()
     truncs  = transition["truncations"].squeeze(-1).bool()
     finished = dones | truncs
@@ -44,7 +45,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     
     batch_size = (N_envs * num_step) // num_mini_batch
     
-    total_updates = total_steps // (N_envs * num_step) + 1    ####  10000 /(1 * 1000)
+    total_updates = total_steps * 10 // (N_envs * num_step) + 1    ####  10000 /(1 * 1000)
     eval_interval = max(1, total_updates // (max(1, num_eval)))
     
     reset_return, info = env.reset()
@@ -56,10 +57,10 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     global_update = 0 
     all_episode_returns = []
 
-    while global_update < total_updates:
+    while global_update < 100:
         transition, observation, critic_observation, infos = agent.collect(env, observation, critic_observation, num_step)
         ep_returns, ep_lengths = _episode_stats_from_rollout(transition, prefer_raw=True)
-        print(f"Episode {global_update}/{total_steps}, Reward: {np.sum(ep_returns):.2f}")
+        print(f"Episode {global_update}/{total_updates}, Reward: {np.sum(ep_returns):.2f}")
         all_episode_returns.extend(ep_returns)
 
         gves = compute_gve(
@@ -116,7 +117,9 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
                 step=global_update * N_envs * num_step,
                 **{k: (float(val) if torch.is_tensor(val) else val) for k, val in logs.items()},
             )
-
+        # print("torch.cuda.is_available():", torch.cuda.is_available())
+        # print("actor on:", next(agent.actor.parameters()).device)
+        # print("critic on:", next(agent.critic.parameters()).device)
         global_update += 1
 
     return all_episode_returns
