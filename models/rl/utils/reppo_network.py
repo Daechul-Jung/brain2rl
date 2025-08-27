@@ -76,9 +76,9 @@ class Critic(nn.Module):
         hidden_dim = 256,
         use_norm = True,
         use_encoder_norm = False,
-        encoder_layers = 1,
-        head_layers = 1,
-        pred_layers = 1,
+        encoder_layers = 2,
+        head_layers = 2,
+        pred_layers = 2,
         device = None
     ):
         super().__init__()

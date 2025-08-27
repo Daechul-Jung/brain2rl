@@ -14,7 +14,7 @@ def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True)
     """
     key = "raw_rewards" if prefer_raw and "raw_rewards" in transition.keys(True) else "rewards"
     rewards = transition[key].squeeze(-1)           # (T, N)
-    rewards = transition['rewards'].squeeze(-1)
+    # rewards = transition['rewards'].squeeze(-1)
     dones   = transition["dones"].squeeze(-1).bool()
     truncs  = transition["truncations"].squeeze(-1).bool()
     finished = dones | truncs
@@ -37,8 +37,8 @@ def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True)
     return ep_returns, ep_lengths
 
 
-def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1000, num_epoch = 3, 
-                num_mini_batch = 4, logger: Optional[callable] = None, num_eval = 5, evaluate_func = None,render=False):
+def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 128, num_epoch = 8, 
+                num_mini_batch = 8, logger: Optional[callable] = None, num_eval = 5, evaluate_func = None,render=False):
     
     device = agent.device
     N_envs = getattr(env, 'num_envs', 1)

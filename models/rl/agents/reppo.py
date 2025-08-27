@@ -38,8 +38,8 @@ class RePPOAgent:
         self.entropy_start = entropy_start
         self.lmbda = lmbda
 
-        self.entropy_target = 0.2 * action_dim   # was 0.5 * action_dim (too high)
-        self.kl_bound = 0.1                      # was 0.1 (too tight)
+        self.entropy_target = 0.4 * action_dim   # was 0.5 * action_dim (too high)
+        self.kl_bound = 0.2                      # was 0.1 (too tight)
         self.kl_target = 0.75  #### previous 0.25 and try 0.5, 0.75 
 
         self.num_atoms = num_atoms
@@ -63,8 +63,8 @@ class RePPOAgent:
                              vmin=vmin, vmax=vmax, 
                              device=self.device)
         
-        self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr, betas=(0.9,0.999), eps=1e-5)
-        self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr, betas=(0.9, 0.999), eps=1e-5)
+        self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr)#, betas=(0.9,0.999), eps=1e-5)
+        self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr)#, betas=(0.9, 0.999), eps=1e-5)
 
         self.observation_normalizer = obs_normalizer
         self.critic_observation_normalizer = critic_obs_normalizer
@@ -254,6 +254,7 @@ class RePPOAgent:
         trajectory = []
         info_list = []
         ## initial reset
+
         if observation is None:
             reset_return = env.reset()
             observation = reset_return[0] if isinstance(reset_return, tuple) else reset_return
@@ -303,7 +304,7 @@ class RePPOAgent:
                 next_value, _, _, next_features = self._critic_forward(next_norm_critic_obs, old_next_action)
                 rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
 
-                shaped_reward = rewards - self.gamma * old_next_log_prob * old_next_temp
+                shaped_reward = rewards - old_next_log_prob * old_next_temp # * self.gamma
                 old_action = _to_tensor(old_action, self.device)
 
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
