@@ -3,6 +3,7 @@ from tensordict import TensorDict
 from models.rl.agents.ppo import *
 import gymnasium as gym
 from models.rl.agents.reppo import *
+import numpy as np
 from typing import Optional
 
 ######################## Training REPPO ###################################
@@ -43,7 +44,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     
     batch_size = (N_envs * num_step) // num_mini_batch
     
-    total_updates = total_steps // (N_envs * num_step) + 1
+    total_updates = total_steps // (N_envs * num_step) + 1    ####  10000 (1 * 1000)
     eval_interval = max(1, total_updates // (max(1, num_eval)))
     
     reset_return, info = env.reset()
@@ -55,10 +56,10 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     global_update = 0 
     all_episode_returns = []
 
-    while global_update < total_updates:
+    while global_update < 10000:
         transition, observation, critic_observation, infos = agent.collect(env, observation, critic_observation, num_step)
         ep_returns, ep_lengths = _episode_stats_from_rollout(transition, prefer_raw=True)
-
+        print(f"Episode {global_update}/{total_steps}, Reward: {np.sum(ep_returns):.2f}")
         all_episode_returns.extend(ep_returns)
 
         gves = compute_gve(
@@ -148,7 +149,7 @@ def train_agent(env, agent, num_episodes, max_steps=1000, render=False):
             done = terminated or truncated
 
             agent.store_transition(state, action, reward, next_state, done, action_info)
-
+            
             state = next_state
             episode_reward += reward
             if done:
