@@ -47,6 +47,8 @@ class RePPOAgent:
         self.aux_loss_mult = 1.0
         self.max_grad_norm = 1.0
         self.kl_bound = 0.1
+
+        self.actor_kl_clip_mode = "clipped"
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim=observation_dim,
                             action_dim=action_dim, 
@@ -150,45 +152,49 @@ class RePPOAgent:
 
         observation = batch['observation']
         observation_critic = batch['critic_observation']
+
+
         ## Get action distribution, mean, entropy, and kl-regulation from actor network 
         pi, mean, temp, lagrange = self._actor_forward(observation) 
         # Then resample the action from the distribution(Transformed)
         actions = pi.rsample() # Shape: (Batch, Action)
 
         actions_for_log = torch.clamp(actions, -1 + 1e-6, 1 - 1e-6) 
-        log_pi = pi.log_prob(actions_for_log).sum(-1)
+        log_prob = pi.log_prob(actions_for_log).sum(-1)
+        entropy = -log_prob
 
-        entropy = -log_pi
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
 
-        a_new = pi.rsample((16,))
-        logp_new = pi.log_prob(a_new.clamp(-1+1e-6, 1-1e-6)).sum(-1)
+        actor_loss = -q_scalar + temp.detach() * log_prob
         
         ## KL(new||old) using old policy sample 
-        with torch.no_grad():
-            # Sample from the old distribution
-            old_pi, _, _, _ = self._old_actor_forward(observation)
-            old_log_prob = old_pi.log_prob(a_new).sum(-1) # Estimate the log probability with the given old distribuiton
+        # Sample from the old distribution
+        old_pi, _, _, _ = self._old_actor_forward(observation)
+        old_pi_action = old_pi.sample((16, )).clip(-1 + 1e-6, 1 - 1e-6)
+        old_log_prob = old_pi.log_prob(old_pi_action).sum(-1).mean(0) # Estimate the log probability with the given old distribuiton
+        new_pi_log_prob = pi.log_prob(old_pi_action).sum(-1).mean(0)
 
-
-        kl = (logp_new - old_log_prob).mean(0)
+        kl = old_log_prob - new_pi_log_prob
         
-        policy_loss = (-q_scalar + temp.detach() * log_pi + lagrange.detach() * kl).mean()
+        if self.actor_kl_clip_mode == "clipped":
+            actor_loss = torch.where(
+                kl < self.kl_bound, actor_loss, kl * lagrange
+            ).mean()
+        elif self.actor_kl_clip_mode == "full":
+            actor_loss = actor_loss + kl * lagrange.detach()
+
+        elif self.actor_kl_clip_mode == "value":
+            actor_loss = actor_loss
+
         
         H = entropy.detach().mean()
         H_target = self.entropy_target
-        
-        kl_bound = self.kl_bound
-        # clipped = torch.where(kl < kl_bound, policy_loss, kl * lagrange)
 
-        ### entropy temperature and KL-Lagrangian terms and loss 
-        # target_entropy = observation.new_tensor(observation.shape[-1])
-
-        entropy_loss = (H_target - H).detach().mean() * temp
+        entropy_loss = (H_target + H).detach().mean() * temp
 
         lagrangian_loss = - lagrange * (kl - self.kl_target).detach().mean()
         # total_loss = clipped.mean() + entropy_loss + lagrangian_loss
-        total_loss = policy_loss + entropy_loss + lagrangian_loss
+        total_loss = actor_loss + entropy_loss + lagrangian_loss
         self.actor_optimizer.zero_grad(set_to_none=True)
 
         total_loss.backward()
@@ -221,6 +227,7 @@ class RePPOAgent:
 
         if critic_observation is None:
             critic_observation = observation
+
         observation = _to_tensor(observation, self.device)
         critic_observation = _to_tensor(critic_observation, self.device)
 
@@ -228,11 +235,10 @@ class RePPOAgent:
             with torch.no_grad():
                 #pi, _, temp, lagrange = self._actor_forward(observation)  ## This is original version from the author but different from what it is described in the paper
                 old_pi, _, _, _ = self._old_actor_forward(observation)  ## As we know, temp and lagrange are scalar value
-                old_action = old_pi.sample()  ## 1 dimensional
+                old_action = old_pi.sample()  ## (17, ) dimensional
                 
                 old_action_t = old_action.clamp(-1 + 1e-6,  1 - 1e-6) ### Warning: Do not confuse about log_prob and action. These are totally different   ## (action_dim, )
                 old_log_prob_torch = old_pi.log_prob(old_action_t).sum(-1) ### Scalar value 
-
                 old_action = old_action_t.detach().cpu().numpy().astype(np.float32)
 
             step_return = env.step(old_action)
@@ -255,6 +261,7 @@ class RePPOAgent:
 
                 next_value, _, next_pred_unused, next_features = self._critic_forward(_next_critic_observation, old_next_action)
                 rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
+
                 shaped_reward = rewards - old_next_log_prob * old_next_temp
                 old_action = _to_tensor(old_action, self.device)
 
