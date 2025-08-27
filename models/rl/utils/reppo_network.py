@@ -227,3 +227,79 @@ def hl_gauss(input, vmin, vmax, num_atoms):
     z     = cdf[:, -1] - cdf[:, 0]                         # [B]
     probs = (cdf[:, 1:] - cdf[:, :-1]) / (z.unsqueeze(1) + 1e-8)  # [B, A]
     return probs
+
+
+class EmpiricalNormalizer(nn.Module):
+    """Normalize Mean and variance of values based on empirical values"""
+
+    def __init__(self, shape, device, eps=1e-2, until = None):
+        super().__init__()
+        self.eps = eps
+        self.until = until
+        self.device =device
+        feat_dim = shape if isinstance(shape, int) else int(shape[-1])
+        self.register_buffer("_mean", torch.zeros(shape).unsqueeze(0).to(device))
+        self.register_buffer("_var", torch.ones(shape).unsqueeze(0).to(device))
+        self.register_buffer("_std", torch.ones(shape).unsqueeze(0).to(device))
+        self.register_buffer("count", torch.tensor(0, dtype = torch.long).to(device))
+
+    @property
+    def mean(self):
+        return self._mean.squeeze(0).clone()
+    
+    @property
+    def std(self):
+        return self._std.squeeze(0).clone()
+    
+    def forward(self, x: torch.Tensor, center: bool = True) -> torch.Tensor:
+        feat_dim = self._mean.shape[-1]
+
+        if x.shape[-1] != feat_dim:
+            raise ValueError(f"Expected input of shape (*, {feat_dim}), got {tuple(x.shape)}")
+
+        # reshape to [B, D] for stats but preserve original shape for return
+        orig_shape = x.shape
+        x2d = x.view(-1, feat_dim)
+
+        # if x.shape[-1] != self._mean.shape[-1 : ]:
+        #     raise ValueError(
+        #         f'Expected input of shape (*, {self._mean.shape[-1:]}), got {x.shape}'
+        #     )
+        
+        if self.training:
+            self.update(x2d)
+
+        if center:
+            y = (x2d - self._mean) / (self._std + self.eps)
+        else:
+            y = x2d / (self._std + self.eps)
+
+        return y.view(orig_shape)
+        
+    @torch.jit.unused
+    def update(self, x2d):
+        if self.until is not None and self.count >= self.until:
+            return
+        B = x2d.shape[0]
+        if B == 0:
+            return
+
+        new_count = self.count + B
+
+        batch_mean = x2d.mean(dim=0, keepdim=True)                     # [1, D]
+        batch_var  = x2d.var(dim=0, unbiased=False, keepdim=True)      # [1, D]
+
+        delta = batch_mean - self._mean                                 # [1, D]
+        m_a   = self._var * self.count                                  # [1, D]
+        m_b   = batch_var * B                                           # [1, D]
+        M2    = m_a + m_b + (delta**2) * (self.count * B / new_count.clamp_min(1))
+
+        self._mean = self._mean + delta * (B / new_count.clamp_min(1))
+        self._var  = M2 / new_count.clamp_min(1)
+        self._std  = torch.sqrt(self._var + 1e-8)
+        self.count = new_count
+
+
+    @torch.jit.unused
+    def inverse(self, y):
+        return y * (self._std + self.eps) + self._mean

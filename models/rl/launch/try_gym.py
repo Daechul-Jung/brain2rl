@@ -55,10 +55,12 @@ def main():
 
     state_dim = obs_space.shape[0]
     action_dim = act_space.shape[0]
-
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     agent = PPOAgent(state_dim, action_dim) if args.algo == 'ppo' else RePPOAgent(state_dim, action_dim)
     if args.algo == "reppo":
-        agent = RePPOAgent(observation_dim=state_dim, action_dim=action_dim)
+        obs_normalizer = EmpiricalNormalizer(shape=state_dim, device=device)
+        critic_obs_normalizer = EmpiricalNormalizer(shape=state_dim, device=device)
+        agent = RePPOAgent(observation_dim=state_dim, action_dim=action_dim, obs_normalizer=obs_normalizer, critic_obs_normalizer=critic_obs_normalizer)
         rewards = train_reppo(env, agent, total_steps=10000)
     # if args.buffer == 'no':
     #     rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render=args.render)
