@@ -6,6 +6,7 @@ import numpy as np
 from dataclasses import dataclass
 import torch.optim as optim
 import copy
+from torch.amp import GradScaler
 import gymnasium as gym
 import torch.nn.functional as F
 from tensordict import TensorDict
@@ -38,16 +39,16 @@ class RePPOAgent:
         self.entropy_start = entropy_start
         self.lmbda = lmbda
 
-        self.entropy_target = 0.4 * action_dim   # was 0.5 * action_dim (too high)
-        self.kl_bound = 0.2                      # was 0.1 (too tight)
-        self.kl_target = 0.75  #### previous 0.25 and try 0.5, 0.75 
+        self.entropy_target = 0.1 * action_dim   # was 0.5 * action_dim (too high)
+        self.kl_bound = 0.02                      # was 0.1 (too tight)
+        self.kl_target = 0.02  #### previous 0.25 and try 0.5, 0.75 
 
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
         self.device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
-        self.aux_loss_mult = 1.0
-        self.max_grad_norm = 0.5
+        self.aux_loss_mult = 0.8
+        self.max_grad_norm = 0.7
         self.actor_kl_clip_mode = "clipped"
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim=observation_dim,
@@ -65,7 +66,7 @@ class RePPOAgent:
         
         self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr)#, betas=(0.9,0.999), eps=1e-5)
         self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr)#, betas=(0.9, 0.999), eps=1e-5)
-
+        self.scaler = GradScaler(device=self.device)
         self.observation_normalizer = obs_normalizer
         self.critic_observation_normalizer = critic_obs_normalizer
 
@@ -116,28 +117,40 @@ class RePPOAgent:
         target_next_feature = batch['next_embedding'] # Shape: (Batch, )
         trunc_mask = (1.0 - truncated).to(observation_critic.dtype)
         ## Getting q_target_distribution via hl_gauss
-        with torch.no_grad():
-            q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms) 
+        # with torch.no_grad():
+        q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms) 
 
         ## Getting Q-value from critic network 
         ## Q(s, a), logits, next_pred, features
         q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)  ## Return value, logit, next_
-        log_probs = F.log_softmax(q_logit, dim = -1)
 
-        ## Calculate cross-entropy loss between q_target_dist and log_probs
-        ce = -(q_target_dist * log_probs).sum(-1) # 
+        qf_loss = -(trunc_mask * torch.sum(q_target_dist * F.log_softmax(q_logit, dim = -1), dim=-1)).mean()
+        emb_loss = (trunc_mask * F.mse_loss(next_pred, target_next_feature, reduction='none').mean(-1)).mean()
 
-        emb_loss = F.mse_loss(next_pred, target_next_feature, reduction='none').mean(dim=-1) ## (B, )
+        qf_loss = qf_loss + self.aux_loss_mult * emb_loss
 
-        loss = (trunc_mask * (ce +  self.aux_loss_mult * emb_loss)).mean()
+        # log_probs = F.log_softmax(q_logit, dim = -1)
 
-        self.critic_optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)    
-        self.critic_optimizer.step()
+        # ## Calculate cross-entropy loss between q_target_dist and log_probs
+        # ce = -(q_target_dist * log_probs).sum(-1) # 
+
+        # emb_loss = F.mse_loss(next_pred, target_next_feature, reduction='none').mean(dim=-1) ## (B, )
+
+        # loss = (trunc_mask * (ce +  self.aux_loss_mult * emb_loss)).mean()
+        self.critic_optimizer.zero_grad(set_to_none=True)
+        self.scaler.scale(qf_loss).backward()
+        self.scaler.unscale_(self.critic_optimizer)
+
+        critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.max_grad_norm)
+        self.scaler.step(self.critic_optimizer)
+        self.scaler.update()        
+        # qf_loss.backward()
+        # nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)    
+        # self.critic_optimizer.step()
 
         return {
-            "qf_loss": loss.detach(),
+            "critic_grad_norm": critic_grad_norm,
+            "qf_loss": qf_loss.detach(),
             "qf_mean": targets.mean().detach(),
             "qf_max": targets.max().detach(),
             "qf_min": targets.min().detach(),
@@ -168,75 +181,43 @@ class RePPOAgent:
 
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
 
-        # actor_loss = -q_scalar + temp.detach() * log_prob
-        
-        ## KL(new||old) using old policy sample 
-        ######################## Original ################################
-        # Sample from the old distribution
-        # old_pi, _, _, _ = self._old_actor_forward(observation)
-        # old_pi_action = old_pi.sample((16, )).clip(-1 + 1e-6, 1 - 1e-6)
-        # old_log_prob = old_pi.log_prob(old_pi_action).sum(-1) # Estimate the log probability with the given old distribuiton
-        # new_pi_log_prob = pi.log_prob(old_pi_action).sum(-1)
-
-        # kl = (new_pi_log_prob - old_log_prob).mean(0)
-        ################################################################
-
-        ##################### Fixed ###############################
         EPS, K = 1e-6, 16
-        a_new = pi.rsample((K,)).clamp(-1+EPS, 1-EPS)
-        logp_new = pi.log_prob(a_new).sum(-1)  # [K,B]
+        a_new = pi.sample((K,)).clamp(-1+EPS, 1-EPS) ## new action from current actor network
+        # logp_new = pi.log_prob(a_new).sum(-1)  # [K,B] 
+
         with torch.no_grad():
             old_pi, _, _, _ = self._old_actor_forward(observation)
-            logp_old = old_pi.log_prob(a_new).sum(-1)  # [K,B]
-        kl = (logp_new - logp_old).mean(0)  # [B]
+            old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
+
+        # logp_new = pi.log_prob(old_a).sum(-1)
+        logp_old = old_pi.log_prob(old_a).sum(-1)                 # [K,B]
+        logp_new = pi.log_prob(old_a).sum(-1)
+        kl = (logp_old - logp_new).mean(0)  # [B] 
         ###############################################################
-        actor_loss = (-q_scalar + temp.detach()*log_prob + lagrange.detach()*kl).mean()
+        actor_loss = (-q_scalar + temp.detach()*log_prob).mean()
+ 
+        # actor_loss = actor_loss + lagrange.detach() * kl.mean()   ### version 1
+        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_target).mean()  ### version 2
 
-        # optional hinge on KL overflow (additive, do NOT replace)
-        kl_over = torch.relu(kl - self.kl_bound).mean()
-        actor_loss = actor_loss + lagrange.detach() * kl_over
-
-        if self.actor_kl_clip_mode == "clipped":                                        
-            actor_loss = torch.where(
-                kl < self.kl_bound, actor_loss, kl * lagrange
-            ).mean()
-        elif self.actor_kl_clip_mode == "full":
-            actor_loss = actor_loss + kl * lagrange.detach()
-
-        elif self.actor_kl_clip_mode == "value":
-            actor_loss = actor_loss
-
-        ######################### Original ##############################
-        # H = entropy.detach().mean()
-
-        # entropy_loss = temp * (self.entropy_target - H.detach().mean())
-        # lagrangian_loss = - lagrange * (kl - self.kl_target).detach().mean()
-        # # total_loss = clipped.mean() + entropy_loss + lagrangian_loss
-        # total_loss = actor_loss + entropy_loss + lagrangian_loss
-        ##############################################################
-
-        ####################### Fixed ################################
-        base = -q_scalar + temp.detach() * log_prob
-        actor_loss = (base + lagrange.detach() * kl).mean()
-
-        # OPTIONAL: additive hinge when KL > bound (do not replace the objective)
-        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_bound).mean()
-
-        # temperature (α) and lagrange (β) updates (correct signs)
+        # temperature  and lagrange  updates (correct signs)
         H = entropy.detach().mean()
-        entropy_loss    = temp      * (self.entropy_target - H)             # drives α up if H < target
-        lagrangian_loss = -lagrange * (kl - self.kl_target).detach().mean() # drives β up if KL > target
+        entropy_loss = temp * (self.entropy_target - H)             # drives alpha up if H < target
+        lagrangian_loss = -lagrange * (kl - self.kl_bound).detach().mean() # drives beta up if KL > target
 
         total_loss = actor_loss + entropy_loss + lagrangian_loss
 
         self.actor_optimizer.zero_grad(set_to_none=True)
-
-        total_loss.backward()
-        nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
-
-        self.actor_optimizer.step()
+        self.scaler.scale(total_loss).backward()
+        self.scaler.unscale_(self.actor_optimizer)
+        # total_loss.backward()
+        actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=self.max_grad_norm)
+        # nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
+        self.scaler.step(self.actor_optimizer)
+        self.scaler.update()
+        # self.actor_optimizer.step()
         
         return {
+            "actor_grad_norm": actor_grad_norm.detach(),
             "actor_loss": total_loss.detach(),
             "kl": kl.mean().detach(),
             "entropy": entropy.mean().detach(),
@@ -304,7 +285,7 @@ class RePPOAgent:
                 next_value, _, _, next_features = self._critic_forward(next_norm_critic_obs, old_next_action)
                 rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
 
-                shaped_reward = rewards - old_next_log_prob * old_next_temp # * self.gamma
+                shaped_reward = rewards - old_next_log_prob * old_next_temp * self.gamma
                 old_action = _to_tensor(old_action, self.device)
 
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
