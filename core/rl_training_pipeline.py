@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from models.rl.practice.agents.ppo import PPOAgent
-from models.rl.practice.agents.sac import SACAgent
+from models.rl.agents.ppo import PPOAgent
+from models.rl.agents.sac import SACAgent
 
 
 class TokenGuidedRL:
@@ -278,7 +278,7 @@ class RLTrainingPipeline:
                 'max_episode_steps': 1000
             }
         
-        self.env = KUKAGymEnvironment(**env_config)
+        self.env = ...
         self.logger.info(f"Environment initialized with config: {env_config}")
     
     def initialize_agent(self, token_data: Dict[str, np.ndarray]):

@@ -48,7 +48,7 @@ class RePPOAgent:
         self.action_dim = action_dim 
         self.device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
         self.aux_loss_mult = 0.8
-        self.max_grad_norm = 0.7
+        self.max_grad_norm = 0.5
         self.actor_kl_clip_mode = "clipped"
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim=observation_dim,

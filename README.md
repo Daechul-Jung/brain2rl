@@ -17,7 +17,7 @@ Brain2RL is an end-to-end pipeline that transforms brain signal data into robot 
 1. **Classification**: EEG data → Action classification
 2. **Tokenization**: Time series data → Tokens with Q/K/V matrices
 3. **RL Training**: Relative Entropy Pairwise Policy Optimization reinforcement learning
-4. **Simulation**: OpenArm Project and Humanoid v-5
+4. **Simulation**: OpenArm Project and Humanoid v-5 and other experimental environment 
 
 The pipeline enables robots to learn from human brain signals, creating a direct brain-to-robot interface for complex manipulation tasks.
 
@@ -146,15 +146,6 @@ Runs trained agents in OpenArm simulation in ROS2 with Gazebo.
 
 ## Usage Examples
 
-### Example 1: Complete Pipeline with Real EEG Data
-
-```bash
-# 1. Prepare your EEG data (see Data Formats section)
-# Ensure data is in .npz format with 'data' and 'labels' arrays
-
-# 3. Results will be saved in results/eeg_experiment/
-```
-
 ### Project Structure
 
 ```
@@ -170,6 +161,7 @@ brain2rl/
 │   ├── tokenization/            # Tokenizing time series data for trajectories
 │   └── rl/                      # RL model for OpenArm and general gym env
 │       ├── agents               # RL Agents Collection
+|       ├─- launch               # code for launching with env
 │       └── utils                # Colection of Neural network and Actor-Critic network
 |── scripts/
 |   └─openarm/
