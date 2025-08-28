@@ -177,13 +177,13 @@ class Actor(nn.Module):
 
 
         ## Setting entropy as parameter for update
-        self.log_temp = nn.Parameter(
+        self.log_temp = nn.Parameter( #### Alpha
             torch.log(torch.tensor(entropy_start, device=device, dtype = torch.float32))
         )
 
 
         ## Setting kl-regulation for lagrange as parameter for update. both temp and lagrange are updated in loss function 
-        self.log_lagrange = nn.Parameter(
+        self.log_lagrange = nn.Parameter(  #### Beta
             torch.log(torch.tensor(kl_start, device = device, dtype = torch.float32))
         )
 

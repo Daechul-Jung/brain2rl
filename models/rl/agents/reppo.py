@@ -77,7 +77,7 @@ class RePPOAgent:
         Returns:
             pi: Action probabilities with transformed distributions
             mean: Mean of the action distribution
-            temp: entropy temperature
+            temp: entropy temperature 
             lagrange: KL regularization parameter
             
         """
@@ -185,7 +185,7 @@ class RePPOAgent:
         a_new = pi.sample((K,)).clamp(-1+EPS, 1-EPS) ## new action from current actor network
         # logp_new = pi.log_prob(a_new).sum(-1)  # [K,B] 
 
-        with torch.no_grad():
+        with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
             old_pi, _, _, _ = self._old_actor_forward(observation)
             old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
 
