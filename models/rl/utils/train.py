@@ -58,7 +58,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     global_update = 0 
     all_episode_returns = []
 
-    while global_update < 100:
+    while global_update < total_updates:
         transition, observation, critic_observation, infos = agent.collect(env, observation, critic_observation, num_step)
         ep_returns, ep_lengths = _episode_stats_from_rollout(transition, prefer_raw=True)
         print(f"Episode {global_update}/{total_updates}, Reward: {np.sum(ep_returns):.2f}")

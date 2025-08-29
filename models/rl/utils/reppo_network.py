@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.distributions import constraints
 from torch.distributions.transforms import Transform
 from torch.distributions import Normal
+import torch.nn.functional as F
 
 def get_activation(name):
     if name == 'relu':
@@ -200,7 +201,7 @@ class Actor(nn.Module):
         transformed_pi = torch.distributions.TransformedDistribution(
             pi, [torch.distributions.TanhTransform(cache_size=1)]
         )
-        return transformed_pi, torch.tanh(mean), torch.exp(self.log_temp), torch.exp(self.log_lagrange)
+        return transformed_pi, torch.tanh(mean), F.softplus(torch.exp(self.log_temp)) + 1e-6, F.softplus(torch.exp(self.log_lagrange)) + 1e-6
     
 
 def hl_gauss(input, vmin, vmax, num_atoms):

@@ -3,7 +3,6 @@ import sys
 import torch
 import torch.nn as nn
 import numpy as np
-from dataclasses import dataclass
 import torch.optim as optim
 import copy
 from torch.amp import GradScaler
@@ -27,7 +26,7 @@ According to the paper, it does not utilize the replay buffer
 class RePPOAgent:
     def __init__(self, observation_dim, action_dim, num_atoms = 151,  ### num_atoms (51 ~ 151)
                  vmin= -2000, vmax=4000, device='cuda',
-                 lr = 3e-4, gamma = 0.99, kl_start = 0.01, entropy_start = 0.01,
+                 lr = 3e-4, gamma = 0.99, kl_start = 0.05, entropy_start = 0.05,
                  lmbda = 0.95, obs_normalizer= None , critic_obs_normalizer = None):
         
         super().__init__()
@@ -39,16 +38,16 @@ class RePPOAgent:
         self.entropy_start = entropy_start
         self.lmbda = lmbda
 
-        self.entropy_target = 0.1 * action_dim   # was 0.5 * action_dim (too high)
-        self.kl_bound = 0.02                      # was 0.1 (too tight)
-        self.kl_target = 0.02  #### previous 0.25 and try 0.5, 0.75 
+        self.entropy_target = 0.3 * action_dim   # was 0.5 * action_dim (too high)
+        self.kl_bound = 0.05                      # was 0.1 (too tight)
+        self.kl_target = 0.2  #### previous 0.25 and try 0.5, 0.75 
 
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
         self.device = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
-        self.aux_loss_mult = 0.8
-        self.max_grad_norm = 0.5
+        self.aux_loss_mult = 1.0
+        self.max_grad_norm = 0.6
         self.actor_kl_clip_mode = "clipped"
         # Actor(Policy) includes entropy and kl-regularization which are subject to optimization
         self.actor = Actor(observation_dim=observation_dim,
@@ -182,9 +181,9 @@ class RePPOAgent:
         a_new = pi.sample((K,)).clamp(-1+EPS, 1-EPS) ## new action from current actor network
         # logp_new = pi.log_prob(a_new).sum(-1)  # [K,B] 
 
-        # with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
-        old_pi, _, _, _ = self._old_actor_forward(observation)
-        old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
+        with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
+            old_pi, _, _, _ = self._old_actor_forward(observation)
+            old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
 
         # logp_new = pi.log_prob(old_a).sum(-1)
         logp_old = old_pi.log_prob(old_a).sum(-1)                 # [K,B]
@@ -198,7 +197,7 @@ class RePPOAgent:
 
         # temperature  and lagrange  updates (correct signs)
         H = entropy.detach().mean()
-        entropy_loss = temp * (self.entropy_target - H)             # drives alpha up if H < target
+        entropy_loss = temp * (H - self.entropy_target)             # drives alpha up if H < target
         lagrangian_loss = -lagrange * (kl - self.kl_bound).detach().mean() # drives beta up if KL > target
 
         total_loss = actor_loss + entropy_loss + lagrangian_loss
