@@ -9,11 +9,13 @@ from models.rl.agents.ppoWdiff import DiffusionPPOAgent
 from models.rl.agents.reppo import *
 from models.rl.agents.sac import SACAgent
 from models.rl.utils.train import train_agent, train_agent_with_buffer, train_reppo
+from models.rl.launch.compare_algo import *
 
 
 def compare_result(list_of_rewards):
     for algo, rewards in list_of_rewards:
         print(f"{algo}: \nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
+
 
 def render_agent(agent, env_name: str, episodes: int = 1):
     env = gym.make(env_name, render_mode="human")
@@ -71,14 +73,18 @@ def main():
         rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
     agent2 = PPOAgent(state_dim, action_dim)
-    # ppo_reward = train_agent(env, agent2, 1000, 10000)
+    ppo_reward = train_agent(env, agent2, num_episodes=782, max_steps=10000)
     
-    agent.save('humanoid.pth')
+    agent.save(f'{args.algo}_humanoid.pth')
     env.close()
-    # compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
+    compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
 
     render_agent(agent, args.env, episodes=args.episodes)
-
+    # compare_and_visualize_ppo_vs_reppo(env_name="Humanoid-v5",
+    #                                ppo_episodes=50,
+    #                                ppo_max_steps=1000,
+    #                                reppo_total_steps=20000,
+    #                                reppo_num_step=128)
 
 
 if __name__ == "__main__":

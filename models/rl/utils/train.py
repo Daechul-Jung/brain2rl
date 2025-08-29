@@ -13,8 +13,6 @@ def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True)
     Aggregate episode returns/lengths from a time-major rollout.
     If 'raw_rewards' is present it uses that; otherwise falls back to shaped 'rewards'.
     """
-    key = "raw_rewards" if prefer_raw and "raw_rewards" in transition.keys(True) else "rewards"
-    rewards = transition[key].squeeze(-1)           # (T, N)
     rewards = transition['rewards'].squeeze(-1)
     dones   = transition["dones"].squeeze(-1).bool()
     truncs  = transition["truncations"].squeeze(-1).bool()
