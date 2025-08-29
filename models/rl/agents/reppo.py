@@ -39,8 +39,8 @@ class RePPOAgent:
         self.lmbda = lmbda
 
         self.entropy_target = 0.3 * action_dim   # was 0.5 * action_dim (too high)
-        self.kl_bound = 0.05                      # was 0.1 (too tight)
-        self.kl_target = 0.2  #### previous 0.25 and try 0.5, 0.75 
+        self.kl_bound = 0.3                      # was 0.1 (too tight)
+        self.kl_target = 0.01  #### previous 0.25 and try 0.5, 0.75 
 
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
@@ -55,7 +55,9 @@ class RePPOAgent:
                             hidden_dim=512,
                            kl_start=kl_start, entropy_start=entropy_start, 
                            device=self.device)
+        
         self.old_actor = copy.deepcopy(self.actor).to(self.device)
+        
         self.critic = Critic(observation_dim=observation_dim, 
                              action_dim=action_dim,
                              hidden_dim=512, 
@@ -174,7 +176,6 @@ class RePPOAgent:
         actions_for_log = torch.clamp(actions, -1 + 1e-6, 1 - 1e-6) 
         log_prob = pi.log_prob(actions_for_log).sum(-1)
         entropy = -log_prob
-
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
 
         EPS, K = 1e-6, 16
@@ -193,12 +194,12 @@ class RePPOAgent:
         actor_loss = (-q_scalar + temp.detach()*log_prob).mean()
  
         # actor_loss = actor_loss + lagrange.detach() * kl.mean()   ### version 1
-        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_target).mean()  ### version 2
+        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_bound).mean()  ### version 2
 
         # temperature  and lagrange  updates (correct signs)
         H = entropy.detach().mean()
-        entropy_loss = temp * (H - self.entropy_target)             # drives alpha up if H < target
-        lagrangian_loss = -lagrange * (kl - self.kl_bound).detach().mean() # drives beta up if KL > target
+        entropy_loss = temp * (self.entropy_target - H)#(H - self.entropy_target)             # drives alpha up if H < target
+        lagrangian_loss = -lagrange * (kl - self.kl_target).detach().mean() # drives beta up if KL > target
 
         total_loss = actor_loss + entropy_loss + lagrangian_loss
         
@@ -266,10 +267,10 @@ class RePPOAgent:
                 old_log_prob_torch = old_pi.log_prob(old_action_t).sum(-1) ### Scalar value 
                 old_action = old_action_t.detach().cpu().numpy().astype(np.float32)
 
-            if isinstance(env.action_space, gym.spaces.Box):
-                low, high = env.action_space.low, env.action_space.high
-                if not (np.allclose(low, -1.0) and np.allclose(high, 1.0)):
-                    old_action_np = low + 0.5 * (old_action + 1.0) * (high - low)
+                if isinstance(env.action_space, gym.spaces.Box):
+                    low, high = env.action_space.low, env.action_space.high
+                    if not (np.allclose(low, -1.0) and np.allclose(high, 1.0)):
+                        old_action_np = low + 0.5 * (old_action + 1.0) * (high - low)
 
             step_return = env.step(old_action_np)
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
