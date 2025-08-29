@@ -129,27 +129,24 @@ class RePPOAgent:
 
         qf_loss = qf_loss + self.aux_loss_mult * emb_loss
 
-        # log_probs = F.log_softmax(q_logit, dim = -1)
+        #################### Version with Scaler #####################
+        # self.critic_optimizer.zero_grad(set_to_none=True)
+        # self.scaler.scale(qf_loss).backward()
+        # self.scaler.unscale_(self.critic_optimizer)
 
-        # ## Calculate cross-entropy loss between q_target_dist and log_probs
-        # ce = -(q_target_dist * log_probs).sum(-1) # 
+        # critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.max_grad_norm)
+        # self.scaler.step(self.critic_optimizer)
+        # self.scaler.update()        
+        ##################################################################
 
-        # emb_loss = F.mse_loss(next_pred, target_next_feature, reduction='none').mean(dim=-1) ## (B, )
-
-        # loss = (trunc_mask * (ce +  self.aux_loss_mult * emb_loss)).mean()
-        self.critic_optimizer.zero_grad(set_to_none=True)
-        self.scaler.scale(qf_loss).backward()
-        self.scaler.unscale_(self.critic_optimizer)
-
-        critic_grad_norm = torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.max_grad_norm)
-        self.scaler.step(self.critic_optimizer)
-        self.scaler.update()        
-        # qf_loss.backward()
-        # nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)    
-        # self.critic_optimizer.step()
-
+        #################### Version without Scaler ######################
+        self.critic_optimizer.zero_grad()
+        qf_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
+        self.critic_optimizer.step()
+        #############################################################
         return {
-            "critic_grad_norm": critic_grad_norm,
+            # "critic_grad_norm": critic_grad_norm,
             "qf_loss": qf_loss.detach(),
             "qf_mean": targets.mean().detach(),
             "qf_max": targets.max().detach(),
@@ -185,9 +182,9 @@ class RePPOAgent:
         a_new = pi.sample((K,)).clamp(-1+EPS, 1-EPS) ## new action from current actor network
         # logp_new = pi.log_prob(a_new).sum(-1)  # [K,B] 
 
-        with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
-            old_pi, _, _, _ = self._old_actor_forward(observation)
-            old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
+        # with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
+        old_pi, _, _, _ = self._old_actor_forward(observation)
+        old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
 
         # logp_new = pi.log_prob(old_a).sum(-1)
         logp_old = old_pi.log_prob(old_a).sum(-1)                 # [K,B]
@@ -205,19 +202,28 @@ class RePPOAgent:
         lagrangian_loss = -lagrange * (kl - self.kl_bound).detach().mean() # drives beta up if KL > target
 
         total_loss = actor_loss + entropy_loss + lagrangian_loss
-
-        self.actor_optimizer.zero_grad(set_to_none=True)
-        self.scaler.scale(total_loss).backward()
-        self.scaler.unscale_(self.actor_optimizer)
-        # total_loss.backward()
-        actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=self.max_grad_norm)
-        # nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
-        self.scaler.step(self.actor_optimizer)
-        self.scaler.update()
-        # self.actor_optimizer.step()
         
+        ######################## Version with Scaler #########################
+        # self.actor_optimizer.zero_grad(set_to_none=True)
+        # self.scaler.scale(total_loss).backward()
+        # self.scaler.unscale_(self.actor_optimizer)
+        # # total_loss.backward()
+        # actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=self.max_grad_norm)
+        # # nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
+        # self.scaler.step(self.actor_optimizer)
+        # self.scaler.update()
+        # self.actor_optimizer.step()
+        ###################################################################### 
+
+        ####################### Version without Scaler ########################
+        self.actor_optimizer.zero_grad()
+        total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
+        self.actor_optimizer.step()
+        ######################################################################
+
         return {
-            "actor_grad_norm": actor_grad_norm.detach(),
+            # "actor_grad_norm": actor_grad_norm.detach(),
             "actor_loss": total_loss.detach(),
             "kl": kl.mean().detach(),
             "entropy": entropy.mean().detach(),
