@@ -38,7 +38,7 @@ def _episode_stats_from_rollout(transition: TensorDict, prefer_raw: bool = True)
     return ep_returns, ep_lengths
 
 
-def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 128, num_epoch = 8, 
+def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 128, num_epoch = 16, 
                 num_mini_batch = 8, logger: Optional[callable] = None, num_eval = 5, evaluate_func = None,render=False):
     
     device = agent.device
@@ -103,8 +103,9 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
         ## syncronize old actor
         with torch.no_grad():
             for p,q in zip(agent.actor.parameters(), agent.old_actor.parameters()):
+                # p.data.copy_(q.data)
                 q.data.copy_(p.data)
-                
+                 
         if evaluate_func and (global_update % eval_interval == 0):
             eval_metrics = evaluate_func(agent) or {}
             if logger:

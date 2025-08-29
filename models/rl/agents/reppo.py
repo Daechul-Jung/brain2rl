@@ -184,7 +184,7 @@ class RePPOAgent:
         with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
             old_pi, _, _, _ = self._old_actor_forward(observation)
             old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
-
+        ### Use old_actor for calculating KL
         # logp_new = pi.log_prob(old_a).sum(-1)
         logp_old = old_pi.log_prob(old_a).sum(-1)                 # [K,B]
         logp_new = pi.log_prob(old_a).sum(-1)
@@ -232,7 +232,7 @@ class RePPOAgent:
             "lagrangian_loss": lagrangian_loss.detach(),
         }
     
-    def collect(self, env: gym.Env, observation: Optional[torch.Tensor], critic_observation: Optional[torch.Tensor], num_steps = 10000):
+    def collect(self, env: gym.Env, observation: Optional[torch.Tensor], critic_observation: Optional[torch.Tensor], num_steps = 128):
         """
         On-policy rollout and return (transition tensordict, final_obs, final_critic_obs, infos)
         """
@@ -256,7 +256,11 @@ class RePPOAgent:
             norm_critic_obs = self.critic_observation_normalizer(critic_observation)
             with torch.no_grad():
                 #pi, _, temp, lagrange = self._actor_forward(observation)  ## This is original version from the author but different from what it is described in the paper
-                old_pi, _, _, _ = self._old_actor_forward(norm_obs)  ## As we know, temp and lagrange are scalar value
+                old_pi, _, _, _ = self._old_actor_forward(norm_obs)  ## As we know, temp and lagrange are scalar value, 
+
+                #### Try current actor #### 
+                # old_pi, _, _, _ = self._actor_forward(norm_obs)
+                ####################
                 old_action = old_pi.sample()  ## (17, ) dimensional
                 old_action_t = old_action.clamp(-1 + 1e-6,  1 - 1e-6) ### Warning: Do not confuse about log_prob and action. These are totally different   ## (action_dim, )
                 old_log_prob_torch = old_pi.log_prob(old_action_t).sum(-1) ### Scalar value 
@@ -280,6 +284,10 @@ class RePPOAgent:
             with torch.no_grad():
                 # next_pi, _, next_temp, next_largran = self._actor_forward(_next_observation) ## This is the original version from the author's code but different from what it is described in the paper, 
                 old_next_pi, _, old_next_temp, old_next_lagran = self._old_actor_forward(next_norm_obs)
+
+                ####### Try current actor #################
+                # old_next_pi, _, old_next_temp, old_next_lagran = self._actor_forward(next_norm_obs)
+                #####################################
 
                 old_next_action = old_next_pi.sample()
                 old_next_action = _to_tensor(old_next_action, self.device)
