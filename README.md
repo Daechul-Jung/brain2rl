@@ -39,7 +39,7 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 
 ### Key Features
 
-- **Multi-modal sensor support**: EEG, fMRI, MEG, and other brain signals
+- **Multi-modal sensor support**: EEG brain signals
 - **Advanced tokenization**: Transformer-based architecture with attention mechanisms
 - **Token-guided RL**: Novel approach using brain signal tokens to guide robot learning
 - **simulation**: OpenArm Project
@@ -122,7 +122,13 @@ Trains OpenArm control using token-guided reinforcement learning.
 **Usage:**
 ```bash
 # Train RL agent
-python3 models/rl/practice/try_mj.py \
+python3 models/rl/launch/try_mj.py \
+  --algo reppo \
+  --sim mujoco \
+  --mjcf ~/brain2rl/external/openarm_mujoco/v1/scene.xml \
+  --render --steps 1000
+
+  python3 models/rl/launch/try_gym.py \
   --algo reppo \
   --sim mujoco \
   --mjcf ~/brain2rl/external/openarm_mujoco/v1/scene.xml \
