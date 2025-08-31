@@ -69,21 +69,20 @@ class REP3OAgent:
         
         self.actor_optimizer = optim.AdamW(self.actor.parameters(), lr = lr)#, betas=(0.9,0.999), eps=1e-5)
         self.critic_optimizer = optim.AdamW(self.critic.parameters(), lr = lr)#, betas=(0.9, 0.999), eps=1e-5)
-        self.scaler = GradScaler(device=self.device)
         self.observation_normalizer = obs_normalizer
         self.critic_observation_normalizer = critic_obs_normalizer
 
 
     def _actor_forward(self, observation):
-
-        return 
+        pi, mean, temp, lagrangian = self.actor(observation)
+        return pi, mean, temp, lagrangian
 
     def _old_actor_forward(self, observation):
-
-        return 
+        old_pi, old_mean, old_temp, old_lagrangian = self.old_actor(observation)
+        return old_pi, old_mean, old_temp, old_lagrangian
     
     def _critic_forward(self, observation, action):
-
+        value, logit, next_pred_features, features = self.critic(observation, action) 
         return 
     
     def update_actor(self, batch):
@@ -97,6 +96,29 @@ class REP3OAgent:
 
         return 
     
-    def collect(self, observation, critic_observation, num_steps):
+    def collect(self, env, observation, critic_observation, num_steps):
+        N, _, asymmetric = _env_shape(env)
+        eps = 1e-6
+        trajectory = []
+        info_list = []
+        ## initial reset
+
+        if observation is None:
+            reset_return = env.reset()
+            observation = reset_return[0] if isinstance(reset_return, tuple) else reset_return
+
+        if critic_observation is None:
+            critic_observation = observation
+
+        observation = _to_tensor(observation, self.device)
+        critic_observation = _to_tensor(critic_observation, self.device)
+
+        for _ in range(num_steps):
+            norm_obs = self.observation_normalizer(observation)
+            critic_norm_obs = self.critic_observation_normalizer(critic_observation)
+            
+            with torch.no_grad():
+                old_pi, old_mean, old_temp, old_lagrangian = self._old_actor_forward(norm_obs)
+                old_action = old_pi.sample().clamp(-1 + eps, 1 - eps)
 
         return 

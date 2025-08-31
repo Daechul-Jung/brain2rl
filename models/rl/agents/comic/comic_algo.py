@@ -23,7 +23,7 @@ class OnPolicyAC:
         pass
 
     def _actor_loss(self, logp: torch.Tensor, advantages: torch.Tensor):
-        """TODO: compute policy loss skeleton."""
+        """This loss is based on 'on-policy variant of Maximum a Posteriori Policy Optimization' """
         # TODO
         pass
 
