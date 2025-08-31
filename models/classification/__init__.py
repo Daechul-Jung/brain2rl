@@ -6,7 +6,7 @@ This module contains models and utilities for action classification from sensor 
 """
 
 from .time_series_dataset import TimeSeriesDataset
-from .action_classifier_cnn import ActionClassifier
+from .action_classifier import ActionClassifier
 from .data_utilities import (
     load_sensor_data, 
     preprocess_data, 

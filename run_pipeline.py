@@ -3,7 +3,7 @@
 Main script to run the Integrated Classification and Tokenization Pipeline
 
 Usage:
-    python run_pipeline.py --data-dir /path/to/your/data --config config/pipeline_config.json
+    python run_pipeline.py --data-dir data --config config/pipeline_config.json
 """
 
 import os
@@ -16,7 +16,7 @@ from pathlib import Path
 # Add core directory to path
 sys.path.append('core')
 
-from integrated_classification_tokenization import IntegratedPipeline, create_default_config
+from core.integrated_classification_tokenization import IntegratedPipeline, create_default_config
 
 def setup_logging(log_level: str = 'INFO'):
     """Setup logging configuration"""
@@ -132,7 +132,7 @@ def run_pipeline(data_dir: str, config: dict, subject_ids: list = None, output_d
         return results
         
     except Exception as e:
-        print(f"\n❌ Pipeline failed: {str(e)}")
+        print(f"\n Pipeline failed: {str(e)}")
         logging.error(f"Pipeline failed: {str(e)}", exc_info=True)
         raise
 

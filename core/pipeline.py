@@ -28,7 +28,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import separated components
 from models.classification.time_series_dataset import TimeSeriesDataset
-from models.classification.action_classifier_cnn import ActionClassifier
+from models.classification.action_classifier import ActionClassifier
 from models.classification.data_utilities import (
     load_sensor_data, preprocess_data, create_dataloaders, 
     validate_data_format, get_data_info, save_preprocessing_info

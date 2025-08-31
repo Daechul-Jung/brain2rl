@@ -29,6 +29,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from models.rl.agents.ppo import PPOAgent
 from models.rl.agents.sac import SACAgent
+from models.rl.agents.reppo import *
 
 
 class TokenGuidedRL:

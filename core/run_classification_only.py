@@ -23,7 +23,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import classification components
 from models.classification.time_series_dataset import TimeSeriesDataset
-from models.classification.action_classifier_cnn import ActionClassifier
+from models.classification.action_classifier import ActionClassifier
 from models.classification.data_utilities import (
     load_sensor_data, preprocess_data, create_dataloaders, 
     validate_data_format, get_data_info, save_preprocessing_info
@@ -392,7 +392,7 @@ def main():
         print(f"Test accuracy: {results['test_results']['test_accuracy']:.2f}%")
         
     except Exception as e:
-        print(f"\n❌ Classification pipeline failed: {str(e)}")
+        print(f"\n Classification pipeline failed: {str(e)}")
         sys.exit(1)
 
 
