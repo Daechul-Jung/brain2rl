@@ -126,3 +126,4 @@ class BrainTokenizer(nn.Module):
             return tokens, attention_info
         else:
             return self.forward(x)
+

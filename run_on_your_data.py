@@ -13,7 +13,7 @@ from pathlib import Path
 # Add core directory to path
 sys.path.append('core')
 
-from integrated_classification_tokenization import IntegratedPipeline, create_default_config
+from core.integrated_classification_tokenization import IntegratedPipeline, create_default_config
 
 def main():
     """Main function to run the pipeline on your data"""
@@ -57,7 +57,7 @@ def main():
     # Check for CSV files
     csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
     if not csv_files:
-        print(f"❌ No CSV files found in '{data_dir}'")
+        print(f" No CSV files found in '{data_dir}'")
         print(f"Please ensure your data directory contains CSV files with sensor data.")
         return
     
@@ -129,3 +129,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
