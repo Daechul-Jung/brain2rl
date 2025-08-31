@@ -9,10 +9,9 @@ from models.rl.utils.train import train_agent, train_agent_with_buffer, train_re
 
 def compare_and_visualize_ppo_vs_reppo(
     env_name: str = "Humanoid-v5",
-    ppo_episodes: int = 200,
-    ppo_max_steps: int = 1000,
-    ppo_warmup_steps: int = 0,          # set to 5 if you want the same warmup as train_agent
-    reppo_total_steps: int = 10000,
+    num_episodes: int = 200,  # Changed from separate ppo_episodes and reppo_total_steps
+    max_steps: int = 1000,    # Changed from ppo_max_steps
+    warmup_steps: int = 0,    # Changed from ppo_warmup_steps
     reppo_num_step: int = 128,
     reppo_num_epoch: int = 16,
     reppo_num_mini_batch: int = 8,
@@ -26,9 +25,10 @@ def compare_and_visualize_ppo_vs_reppo(
       • Loss curves (PPO: policy/value; RePPO: actor/critic)
 
     Notes:
+      - Both algorithms now train for the same number of episodes
       - PPO loop mirrors your train_agent(): get_action → map to env range → step →
         store_transition(state, mapped_action, ...) → update() once per episode.
-      - RePPO loop is mini-batch SGD per update with actor/critic loss tracking.
+      - RePPO loop is modified to also train for a fixed number of episodes
     """
     import numpy as np
     import torch
@@ -85,17 +85,17 @@ def compare_and_visualize_ppo_vs_reppo(
     ppo_policy_losses: list[float] = []
     ppo_value_losses: list[float] = []
 
-    for ep in range(ppo_episodes):
+    for ep in range(num_episodes):
         state, _ = ppo_env.reset(seed=seed if ep == 0 else None)
 
         # optional warmup steps (mirrors your train_agent)
-        for _ in range(ppo_warmup_steps):
+        for _ in range(warmup_steps):
             _, r, term, trunc, _ = ppo_env.step(ppo_env.action_space.sample())
             if term or trunc:
                 state, _ = ppo_env.reset()
 
         ep_ret = 0.0
-        for t in range(ppo_max_steps):
+        for t in range(max_steps):
             action_unit, info = ppo_agent.get_action(state, training=True)  # in [-1,1]
             env_action = _env_action_from_unit(action_unit, ppo_env.action_space)
             next_state, reward, terminated, truncated, _ = ppo_env.step(env_action)
@@ -114,13 +114,13 @@ def compare_and_visualize_ppo_vs_reppo(
         if "policy_loss" in logs: ppo_policy_losses.append(float(logs["policy_loss"]))
         if "value_loss"  in logs: ppo_value_losses.append(float(logs["value_loss"]))
 
-        print(f"[PPO] Episode {ep+1}/{ppo_episodes}  Return: {ep_ret:.2f}  "
+        print(f"[PPO] Episode {ep+1}/{num_episodes}  Return: {ep_ret:.2f}  "
               f"pi_loss: {logs.get('policy_loss', float('nan')):.4f}  "
               f"v_loss: {logs.get('value_loss', float('nan')):.4f}")
 
     ppo_env.close()
 
-    # ================= RePPO =================
+    # ================= RePPO (Modified for episode-based training) =================
     reppo_env = gym.make(env_name)
     sdim2, adim2 = reppo_env.observation_space.shape[0], reppo_env.action_space.shape[0]
 
@@ -138,14 +138,14 @@ def compare_and_visualize_ppo_vs_reppo(
 
     N_envs = getattr(reppo_env, 'num_envs', 1)
     batch_size = (N_envs * reppo_num_step) // reppo_num_mini_batch
-    total_updates = reppo_total_steps * 10 // (N_envs * reppo_num_step) + 1
 
     reset_return, _ = reppo_env.reset(seed=seed)
     observation = reset_return[0] if isinstance(reset_return, tuple) else reset_return
     critic_observation = None
-    global_update = 0
+    episode_count = 0
 
-    while global_update < total_updates:
+    # Modified RePPO loop to train for fixed number of episodes
+    while episode_count < num_episodes:
         transition, observation, critic_observation, infos = reppo_agent.collect(
             reppo_env, observation, critic_observation, reppo_num_step
         )
@@ -153,6 +153,7 @@ def compare_and_visualize_ppo_vs_reppo(
         # episode returns from rollout
         ep_returns = _episode_stats_from_rollout_local(transition)
         reppo_rewards.extend(ep_returns)
+        episode_count += len(ep_returns)  # Count actual episodes completed
 
         # targets
         gves = compute_gve(
@@ -203,8 +204,11 @@ def compare_and_visualize_ppo_vs_reppo(
         if actor_loss_accum:  reppo_actor_losses.append(float(np.mean(actor_loss_accum)))
         if critic_loss_accum: reppo_critic_losses.append(float(np.mean(critic_loss_accum)))
 
-        global_update += 1
-        if global_update * reppo_num_step >= reppo_total_steps:
+        print(f"[RePPO] Episodes completed: {episode_count}/{num_episodes}  "
+              f"Last rollout returns: {np.mean(ep_returns):.2f} ± {np.std(ep_returns):.2f}")
+
+        # Stop if we've completed enough episodes
+        if episode_count >= num_episodes:
             break
 
     reppo_env.close()

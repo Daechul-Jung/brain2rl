@@ -1,0 +1,36 @@
+{
+    "window_size": 100,
+    "batch_size": 32,
+    "classifier_lr": 0.001,
+    "classifier_epochs": 100,
+    "classifier_dropout": 0.3,
+    "tokenizer_lr": 0.0001,
+    "tokenizer_epochs": 50,
+    "tokenizer_dropout": 0.1,
+    "n_tokens": 512,
+    "embedding_dim": 128,
+    "nhead": 8,
+    "num_encoder_layers": 6,
+    "data_preprocessing": {
+        "normalize": true,
+        "remove_outliers": false,
+        "filter_noise": false
+    },
+    "training": {
+        "early_stopping_patience": 10,
+        "save_best_model": true,
+        "use_mixed_precision": false
+    },
+    "model_architecture": {
+        "classifier": {
+            "conv_channels": [32, 64, 128],
+            "fc_layers": [256, 128],
+            "activation": "relu"
+        },
+        "tokenizer": {
+            "feature_extractor_channels": [64, 128],
+            "transformer_ff_dim": 512,
+            "use_layer_norm": true
+        }
+    }
+}

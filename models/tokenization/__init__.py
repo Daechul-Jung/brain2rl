@@ -1,11 +1,12 @@
 """
-Tokenization models for brain signals
+Tokenization Models Module
+==========================
+
+This module contains models for brain signal tokenization and transformer-based processing.
 """
 
-from .brain_tokenizer import (
-    BrainTokenizer,
-    CNNFeatureExtractor,
-    PositionalEncoding,
-    train_tokenizer,
-    evaluate_tokenizer
-) 
+from .brain_tokenizer_transformer import BrainTokenizer
+
+__all__ = [
+    'BrainTokenizer'
+] 
