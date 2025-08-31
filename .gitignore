@@ -6,3 +6,4 @@ external/openarm_mujoco/
 *.pt
 *.pth
 __pycache__/
+.gitmodules

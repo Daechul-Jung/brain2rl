@@ -39,7 +39,7 @@ class RePPOAgent:
         self.lmbda = lmbda
 
         self.entropy_target = 0.3 * action_dim   # was 0.5 * action_dim (too high)
-        self.kl_bound = 0.3                      # was 0.1 (too tight)
+        self.kl_bound = 0.02                      # was 0.1 (too tight)
         self.kl_target = 0.01  #### previous 0.25 and try 0.5, 0.75 
 
         self.num_atoms = num_atoms
@@ -111,7 +111,7 @@ class RePPOAgent:
         """
         self.critic.train()
 
-        observation_critic = batch['critic_observation'] # Shape: (Batch, observation_critic)
+        observation_critic = batch['critic_observation'] # Shape: (Batch, observation_critic) Already normalized
         actions = batch['actions'] # shape: (Batch, Action)
         targets = batch['gve'].squeeze(-1) # Shape: (Batch, hidden_dim)
         truncated = batch['truncations'].squeeze(-1) # Shape: (Batch, )
@@ -120,7 +120,6 @@ class RePPOAgent:
         ## Getting q_target_distribution via hl_gauss
         # with torch.no_grad():
         q_target_dist = hl_gauss(targets, self.vmin, self.vmax, self.num_atoms) 
-
         ## Getting Q-value from critic network 
         ## Q(s, a), logits, next_pred, features
         q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)  ## Return value, logit, next_
@@ -194,7 +193,7 @@ class RePPOAgent:
         actor_loss = (-q_scalar + temp.detach()*log_prob).mean()
  
         # actor_loss = actor_loss + lagrange.detach() * kl.mean()   ### version 1
-        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_bound).mean()  ### version 2
+        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_target).mean()  ### version 2
 
         # temperature  and lagrange  updates (correct signs)
         H = entropy.detach().mean()

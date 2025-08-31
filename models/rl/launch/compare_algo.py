@@ -20,15 +20,10 @@ def compare_and_visualize_ppo_vs_reppo(
     show_plots: bool = True,
 ):
     """
-    Train PPO (NO BUFFER) and RePPO on the same env and visualize:
+    Train PPO and RePPO on the same env and visualize:
       • Episode reward curves (raw + moving average)
       • Loss curves (PPO: policy/value; RePPO: actor/critic)
 
-    Notes:
-      - Both algorithms now train for the same number of episodes
-      - PPO loop mirrors your train_agent(): get_action → map to env range → step →
-        store_transition(state, mapped_action, ...) → update() once per episode.
-      - RePPO loop is modified to also train for a fixed number of episodes
     """
     import numpy as np
     import torch

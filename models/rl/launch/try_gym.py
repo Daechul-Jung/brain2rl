@@ -34,7 +34,7 @@ def render_agent(agent, env_name: str, episodes: int = 1):
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")
-    parser.add_argument('--env', type=str, default='Humanoid-v5', help='Gym environment name')   ##### HumanoidStandup-v5, Reacher-v5, Humanoid-v5
+    parser.add_argument('--env', type=str, default='HumanoidStandup-v5', help='Gym environment name')   ##### HumanoidStandup-v5, Reacher-v5, Humanoid-v5
     parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac', 'reppo'], help='RL algorithm to use')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of training episodes')
     parser.add_argument('--max_steps', type=int, default=1000, help='Max steps per episode')
@@ -72,14 +72,15 @@ def main():
         agent = PPOAgent(state_dim, action_dim, device)
         rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
-    agent2 = PPOAgent(state_dim, action_dim)
-    ppo_reward = train_agent(env, agent2, num_episodes=782, max_steps=10000)
+    # agent2 = PPOAgent(state_dim, action_dim)
+    # ppo_reward = train_agent(env, agent2, num_episodes=782, max_steps=10000)
     
     agent.save(f'{args.algo}_humanoid.pth')
     env.close()
-    compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
+    # compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
 
     render_agent(agent, args.env, episodes=args.episodes)
+    # results = compare_and_visualize_ppo_vs_reppo()
     # compare_and_visualize_ppo_vs_reppo(env_name="Humanoid-v5",
     #                                ppo_episodes=50,
     #                                ppo_max_steps=1000,
