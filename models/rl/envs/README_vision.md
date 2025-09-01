@@ -145,3 +145,4 @@ The system saves debug images:
 - **Memory usage**: Efficient image processing with minimal overhead
 - **Training stability**: Balanced rewards prevent reward sparsity
 - **Scalability**: Modular design allows easy addition of new vision features
+

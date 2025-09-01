@@ -58,3 +58,4 @@
     <framepos name="target_zone_pos" objtype="site" objname="target_zone_center" />
   </sensor>
 </mujoco>
+
