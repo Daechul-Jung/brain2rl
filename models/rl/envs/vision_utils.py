@@ -97,16 +97,6 @@ class CupDetector:
         return detected_cups
     
     def calculate_vision_reward(self, image: np.ndarray, target_cup: str = 'cup1') -> Tuple[float, Dict]:
-        """
-        Calculate reward based on computer vision analysis
-        
-        Args:
-            image: RGB image from camera
-            target_cup: Name of the target cup to focus on
-            
-        Returns:
-            Tuple of (reward, info_dict)
-        """
         detected_cups = self.detect_cups(image)
         
         if not detected_cups:

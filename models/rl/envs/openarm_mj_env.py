@@ -2,7 +2,7 @@ import numpy as np, mujoco
 from gymnasium import spaces
 import imageio.v2 as imageio
 from models.rl.envs.vision_utils import *
-
+import os
 class OpenArmMjEnv:
     """OpenArm (left arm) reaching a cup; optional camera observations."""
     def __init__(self, xml_path: str, horizon=300, render=False,
@@ -129,7 +129,6 @@ class OpenArmMjEnv:
         self.t = 0
         mujoco.mj_resetData(self.model, self.data)
 
-        # randomize cup XY (freejoint qpos = [x y z qw qx qy qz])
         qsl = self._cup_qpos_slice()
         x = np.random.uniform(0.30, 0.48)
         y = np.random.uniform(-0.12, 0.12)
@@ -183,6 +182,21 @@ class OpenArmMjEnv:
 
         if self.render and self.viewer:
             self.viewer.sync()
+
+        detected = {}
+        if pix is not None:
+            # run detector on the current camera frame
+            detected = self.reward_calc.cup_detector.detect_cups(pix)
+            print(detected)
+            info["detected_cups_dict"] = detected  # centers/areas/bboxes per cup
+
+            # draw boxes & save every 100 steps (tweak cadence as you like)
+            if detected:
+                vis_img = self.reward_calc.cup_detector.visualize_detection(pix, detected)
+                os.makedirs("debug", exist_ok=True)
+                debug_path = os.path.join("debug", f"cupdet_{self.t:06d}.png")
+                imageio.imwrite(debug_path, vis_img)
+                info["debug_vis_saved"] = debug_path
 
         return self._get_obs(), float(total_reward), terminated, truncated, info
 
