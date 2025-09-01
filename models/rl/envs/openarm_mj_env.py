@@ -1,7 +1,7 @@
 import numpy as np, mujoco
 from gymnasium import spaces
 import imageio.v2 as imageio
-
+from models.rl.envs.vision_utils import *
 
 class OpenArmMjEnv:
     """OpenArm (left arm) reaching a cup; optional camera observations."""
@@ -17,6 +17,10 @@ class OpenArmMjEnv:
         self.vision_weight = vision_rewards_weight
         self.physic_weight = physics_rewards_weight
         self.target = target_cup
+        self.reward_calc = RewardCalculator(
+            vision_weight=vision_rewards_weight,
+            physics_weight=physics_rewards_weight,
+        )
         ##############################
         cams = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_CAMERA, i) for i in range(self.model.ncam)]
         print("Cameras:", cams)
@@ -102,15 +106,12 @@ class OpenArmMjEnv:
         self.renderer.update_scene(self.data, camera=self.cam_id)
         rgb = self.renderer.render()                  
         return rgb
-    
     def _get_obs(self):
         base = [self.data.qpos.ravel(), self.data.qvel.ravel(), self._ee(), self._cup()]
         obs = np.concatenate(base).astype(np.float32)
         if self.renderer is not None:
-            self.renderer.update_scene(self.data, camera=self.camera_name)
-            rgb = self.renderer.render()  ### Camera size (256, 256, 3)
-        
-
+            self.renderer.update_scene(self.data, camera=self.cam_id) 
+            _ = self.renderer.render()
         return obs
     
     def calculate_reward(self, info):
@@ -155,22 +156,35 @@ class OpenArmMjEnv:
 
         ee  = self._ee()
         cup = self._cup()
-        dist = np.linalg.norm(ee - cup)
 
+        # get pixels once per step if we want vision-based reward
+        pix = self._get_pixels() if (self.renderer is not None and self.camera_in_info) else None
 
-        # reward = self.calculate_reward()
-        # simple shaping towards the cup
-        reward = -dist
-        reward += 0.1*(0.2 - np.clip(dist, 0, 0.2))
+        # combine physics+vision rewards from your utility
+        total_reward, vis_info = self.reward_calc.calculate_total_reward(
+            image=pix if pix is not None else np.zeros((1,1,3), dtype=np.uint8),
+            ee_pos=ee,
+            cup_pos=cup,
+            target_cup=self.target
+        )
 
-        terminated = dist < 0.03
+        terminated = vis_info.get("distance", np.inf) < 0.03
         truncated  = self.t >= self.horizon
-        info = {"dist": dist}
+
+        info = {
+            "dist": vis_info.get("distance", np.linalg.norm(ee - cup)),
+            "physics_reward": vis_info.get("physics_reward", 0.0),
+            "vision_reward": vis_info.get("vision_reward", 0.0),
+            "total_reward": total_reward,
+            "vision_info": vis_info.get("vision_info", {}),
+        }
+        if self.camera_in_info and pix is not None:
+            info["pixels"] = pix
 
         if self.render and self.viewer:
             self.viewer.sync()
 
-        return self._get_obs(), float(reward), terminated, truncated, info
+        return self._get_obs(), float(total_reward), terminated, truncated, info
 
 
     
