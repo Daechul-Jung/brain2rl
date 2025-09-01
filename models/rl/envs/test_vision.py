@@ -105,10 +105,10 @@ def main():
     print(f"Reward Calculator: {'✓ PASS' if calculator_ok else '✗ FAIL'}")
     
     if detector_ok and calculator_ok:
-        print("\n🎉 All tests passed! The computer vision system is working correctly.")
+        print("\n All tests passed! The computer vision system is working correctly.")
         return True
     else:
-        print("\n❌ Some tests failed. Please check the implementation.")
+        print("\n Some tests failed. Please check the implementation.")
         return False
 
 if __name__ == "__main__":
