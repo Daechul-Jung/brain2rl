@@ -9,8 +9,18 @@ from models.rl.envs.openarm_mj_env import OpenArmMjEnv
 
 def make_env(sim, mjcf, steps, render):
     if sim == "mujoco":
-        xml = mjcf or os.path.expanduser("~/brain2rl/external/openarm_mujoco/v1/scene.xml")
-        return OpenArmMjEnv(xml_path=xml,camera='left_wrist_cam',camera_size=(256, 256) ,horizon=steps, render=render)
+        # Use the new scene file with cameras and multiple cups
+        xml = mjcf or os.path.join(os.path.dirname(__file__), '..', 'envs', 'openarm_scene_with_cameras.xml')
+        return OpenArmMjEnv(
+            xml_path=xml,
+            camera='left_wrist_cam',  # Use the wrist-mounted camera
+            camera_size=(256, 256),
+            horizon=steps, 
+            render=render,
+            vision_reward_weight=0.4,  # 40% vision, 60% physics
+            physics_reward_weight=0.6,
+            target_cup='cup1'  # Target the brown cup
+        )
     else:
         import gymnasium as gym
         return gym.make("Humanoid-v5")
@@ -38,10 +48,12 @@ if __name__ == "__main__":
     p.add_argument("--mjcf", type=str, default=None)
     p.add_argument("--render", action="store_true")
     p.add_argument("--steps", type=int, default=1000)
+    p.add_argument("--episodes", type=int, default=1)
+    p.add_argument("--env", type=str, default="Humanoid-v5")
     # ... your existing RL args (algo, lr, etc.)
     args = p.parse_args()
 
-    print(f"\n=== RL Demo on Gym ===")
+    print(f"\n=== RL Demo on OpenArm with Computer Vision ===")
     print(f"Environment: {args.sim}")
     print(f"Algorithm: {args.algo}")
 
@@ -49,7 +61,8 @@ if __name__ == "__main__":
     env = make_env(args.sim, args.mjcf, args.steps, args.render)
     obs_space = env.observation_space
     act_space = env.action_space
-    print(f'observation space: {obs_space.shape} and action space: {act_space.shape}')
+    print(f'Observation space: {obs_space.shape} and action space: {act_space.shape}')
+    print(f'Vision features: 6 additional features for cup detection')
 
     if not isinstance(act_space, gym.spaces.Box):
         raise ValueError("This script only supports continuous action spaces (gym.spaces.Box)")
@@ -72,6 +85,6 @@ if __name__ == "__main__":
     agent.save(f'{args.algo}_openarm_mujoco.pth')
     env.close()
 
-
-    render_agent(agent, args.env, episodes=args.episodes)
+    # Note: render_agent is commented out as it's designed for gym environments
+    # render_agent(agent, args.env, episodes=args.episodes)
 
