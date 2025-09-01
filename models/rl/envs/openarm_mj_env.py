@@ -6,14 +6,17 @@ import imageio.v2 as imageio
 class OpenArmMjEnv:
     """OpenArm (left arm) reaching a cup; optional camera observations."""
     def __init__(self, xml_path: str, horizon=300, render=False,
-                 action_scale=0.03, camera=None, camera_size=(256,256), camera_in_info = True):
+                 action_scale=0.03, camera=None, camera_size=(256,256), camera_in_info = True, 
+                 vision_rewards_weight = 0.4, physics_rewards_weight = 0.6, target_cup = 'cup1'):
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data  = mujoco.MjData(self.model)
         self.horizon = horizon
         self.render  = render
         self.action_scale = action_scale
         self.t = 0
-
+        self.vision_weight = vision_rewards_weight
+        self.physic_weight = physics_rewards_weight
+        self.target = target_cup
         ##############################
         cams = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_CAMERA, i) for i in range(self.model.ncam)]
         print("Cameras:", cams)
@@ -141,7 +144,7 @@ class OpenArmMjEnv:
             pix = self._get_pixels()
             if pix is not None:
                 info["pixels"] = pix
-                # imageio.imwrite("camera_view.png", pix)
+                imageio.imwrite("camera_view.png", pix)
         return obs, info
 
     def step(self, action):

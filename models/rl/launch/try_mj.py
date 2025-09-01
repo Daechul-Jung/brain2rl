@@ -17,8 +17,8 @@ def make_env(sim, mjcf, steps, render):
             camera_size=(256, 256),
             horizon=steps, 
             render=render,
-            vision_reward_weight=0.4,  # 40% vision, 60% physics
-            physics_reward_weight=0.6,
+            vision_rewards_weight=0.4,  # 40% vision, 60% physics
+            physics_rewards_weight=0.6,
             target_cup='cup1'  # Target the brown cup
         )
     else:
