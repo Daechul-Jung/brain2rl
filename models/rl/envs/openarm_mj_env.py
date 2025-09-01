@@ -141,7 +141,7 @@ class OpenArmMjEnv:
             pix = self._get_pixels()
             if pix is not None:
                 info["pixels"] = pix
-                imageio.imwrite("camera_view.png", pix)
+                # imageio.imwrite("camera_view.png", pix)
         return obs, info
 
     def step(self, action):
