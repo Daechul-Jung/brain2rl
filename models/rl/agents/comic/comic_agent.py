@@ -19,7 +19,7 @@ class AgentConfig:
     beta: float = 1e-4
     gamma: float = 0.99
     lam: float = 0.95
-    device: str = "cpu"
+    device: str = "cuda"
 
 
 class CoMicAgent:

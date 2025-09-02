@@ -14,9 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.rl.utils.buffer import PPOBuffer
 from models.rl.utils.NeuralNetwork import NeuralNetwork
 
-class SACAgent:
-    """SAC Agent for OpenArm or Humanoid control"""
-    
+class SACAgent:    
     def __init__(self, observation_dim: int, action_dim: int, device: str = "cuda"):
         self.observation_dim = observation_dim
         self.action_dim = action_dim

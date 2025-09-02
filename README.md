@@ -32,7 +32,7 @@ The pipeline enables robots to learn from human brain signals, creating a direct
                                                         │                        │
                                                         ▼                        ▼
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌──────────────────┐
-│   Simulation    │◀───│     Gazebo +     │◀───│   Q/K/V Token   │    │   Trained RL     │
+│   Simulation    │◀───│     OpenArm +    │◀───│   Q/K/V Token   │    │   Trained RL     │
 │  Visualization  │    │   ROS2 Control   │    │    Matrices     │    │     Agent        │
 └─────────────────┘    └──────────────────┘    └─────────────────┘    └──────────────────┘
 ```
@@ -68,6 +68,8 @@ Converts raw sensor data into action classifications using CNN models.
 **Usage:**
 ```bash
 # Train classifier
+
+### Should be fixed
 python brain2rl/cli.py classification \
     --mode train \
     --data-path data/sensor_data.npz \
@@ -95,6 +97,7 @@ Transforms classified time series data into tokens with Query/Key/Value matrices
 
 **Usage:**
 ```bash
+### Should be fixed
 # Train tokenizer
 python brain2rl/cli.py tokenization \
     --mode train \
@@ -135,10 +138,6 @@ python3 models/rl/launch/try_mj.py \
   --render --steps 1000
 ```
 
-### 4. Simulation Pipeline
-
-Runs trained agents in OpenArm simulation in ROS2 with Gazebo.
-
 **Features:**
 - Multiple manipulation tasks (reach, grasp, manipulation)
 - Performance monitoring and visualization
@@ -161,14 +160,13 @@ brain2rl/
 │   ├── classification_pipeline.py # Classification component
 │   ├── tokenization_pipeline.py  # Tokenization component
 │   ├── rl_training_pipeline.py   # RL training component
-│   └── simulation_pipeline.py    # Simulation component
 ├── models/                        # Model architectures
 │   ├── classification/           # Action classification models 
 │   ├── tokenization/            # Tokenizing time series data for trajectories
 │   └── rl/                      # RL model for OpenArm and general gym env
 │       ├── agents               # RL Agents Collection
 |       ├─- launch               # code for launching with env
-│       └── utils                # Colection of Neural network and Actor-Critic network
+│       └── utils                # Colection of Neural network and Actor-Critic network and any other utilities.
 |── scripts/
 |   └─openarm/
 |      └─play_policy.py  
@@ -179,7 +177,7 @@ brain2rl/
 
 1. **Classification Models**: Add to `brain2rl/models/classification/`
 2. **Tokenization Models**: Add to `brain2rl/models/tokenization/`
-3. **RL Algorithms**: Add to `brain2rl/models/rl/practice/agents`
+3. **RL Algorithms**: Add to `brain2rl/models/rl/agents`
 
 ## License
 

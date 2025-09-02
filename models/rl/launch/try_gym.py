@@ -8,7 +8,7 @@ from models.rl.agents.ppo import PPOAgent
 from models.rl.agents.ppoWdiff import DiffusionPPOAgent
 from models.rl.agents.reppo import *
 from models.rl.agents.sac import SACAgent
-from models.rl.utils.train import train_agent, train_agent_with_buffer, train_reppo
+from models.rl.utils.train import train_agent, train_reppo
 from models.rl.launch.compare_algo import *
 
 
@@ -58,16 +58,13 @@ def main():
     state_dim = obs_space.shape[0]
     action_dim = act_space.shape[0]
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(device)
+
     if args.algo == "reppo":
         obs_normalizer = EmpiricalNormalizer(shape=state_dim, device=device)
         critic_obs_normalizer = EmpiricalNormalizer(shape=state_dim, device=device)
         agent = RePPOAgent(observation_dim=state_dim, action_dim=action_dim, obs_normalizer=obs_normalizer, critic_obs_normalizer=critic_obs_normalizer)
         rewards = train_reppo(env, agent, total_steps=10000)
-    # if args.buffer == 'no':
-    #     rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render=args.render)
 
-   
     elif args.algo == "ppo" :
         agent = PPOAgent(state_dim, action_dim, device)
         rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
@@ -80,13 +77,6 @@ def main():
     # compare_result(list([('reppo', rewards), ('ppo', ppo_reward)]))
 
     render_agent(agent, args.env, episodes=args.episodes)
-    # results = compare_and_visualize_ppo_vs_reppo()
-    # compare_and_visualize_ppo_vs_reppo(env_name="Humanoid-v5",
-    #                                ppo_episodes=50,
-    #                                ppo_max_steps=1000,
-    #                                reppo_total_steps=20000,
-    #                                reppo_num_step=128)
-
 
 if __name__ == "__main__":
     main() 

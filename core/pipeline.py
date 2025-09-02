@@ -23,10 +23,8 @@ import logging
 import json
 from pathlib import Path
 
-# Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import separated components
 from models.classification.time_series_dataset import TimeSeriesDataset
 from models.classification.action_classifier import ActionClassifier
 from models.classification.data_utilities import (

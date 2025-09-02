@@ -31,27 +31,16 @@ from models.classification.data_utilities import (
 
 
 class ClassificationOnlyPipeline:
-    """
-    Pipeline that runs only the classification part
-    """
+
     
     def __init__(self, config: Dict[str, Any]):
-        """
-        Initialize the classification-only pipeline
-        
-        Args:
-            config: Configuration dictionary with classification settings
-        """
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # Setup logging
         self.logger = self._setup_logger()
         
-        # Initialize classifier
         self.classifier = None
-        
-        # Data preprocessing
         self.scaler = None
         self.label_encoder = None
         
@@ -62,7 +51,6 @@ class ClassificationOnlyPipeline:
         self.logger.info(f"Classification-Only Pipeline initialized on device: {self.device}")
     
     def _setup_logger(self) -> logging.Logger:
-        """Setup logging configuration"""
         logger = logging.getLogger('ClassificationOnlyPipeline')
         logger.setLevel(logging.INFO)
         
@@ -115,16 +103,7 @@ class ClassificationOnlyPipeline:
         return train_loader, val_loader, test_loader
     
     def train_classifier(self, train_loader: DataLoader, val_loader: DataLoader) -> Dict[str, List[float]]:
-        """
-        Train the action classifier
-        
-        Args:
-            train_loader: Training data loader
-            val_loader: Validation data loader
-            
-        Returns:
-            Training history
-        """
+
         self.logger.info("Training action classifier...")
         
         # Initialize classifier
@@ -218,13 +197,6 @@ class ClassificationOnlyPipeline:
     
     def evaluate_on_test_set(self, test_loader: DataLoader) -> Dict[str, Any]:
         """
-        Evaluate the trained classifier on the test set
-        
-        Args:
-            test_loader: Test data loader
-            
-        Returns:
-            Dictionary with test results
         """
         if self.classifier is None:
             raise ValueError("Classifier not trained. Please train the classifier first.")

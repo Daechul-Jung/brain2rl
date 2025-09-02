@@ -6,6 +6,6 @@ external/openarm_mujoco/
 *.pt
 *.pth
 __pycache__/
-.gitmodules
+ouput/
 # macOS
 .DS_Store

@@ -2,7 +2,7 @@
 RL Training Pipeline
 ===================
 
-This module handles the reinforcement learning training of KUKA robot arm
+This module handles the reinforcement learning training of OpenArm robot
 using tokenized brain signal data for trajectory optimization.
 
 Author: Daechul Jung
@@ -33,10 +33,6 @@ from models.rl.agents.reppo import *
 
 
 class TokenGuidedRL:
-    """
-    Token-guided reinforcement learning agent that incorporates brain signal tokens
-    into action selection and trajectory optimization
-    """
     
     def __init__(self, state_dim: int, action_dim: int, token_dim: int, 
                  embedding_dim: int = 128, hidden_dim: int = 256):

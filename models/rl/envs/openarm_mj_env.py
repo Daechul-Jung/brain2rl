@@ -21,6 +21,7 @@ class OpenArmMjEnv:
             vision_weight=vision_rewards_weight,
             physics_weight=physics_rewards_weight,
         )
+        self.vision_detector = CupDetector(camera_size)
         ##############################
         cams = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_CAMERA, i) for i in range(self.model.ncam)]
         print("Cameras:", cams)

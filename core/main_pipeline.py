@@ -8,7 +8,7 @@ This module orchestrates the complete Brain2RL pipeline:
 3. RL Training: Token-guided KUKA robot training
 4. Simulation: Real-time KUKA robot simulation
 
-Author: Brain2RL Team
+Author: Daechul Jung
 Version: 1.0.0
 """
 
@@ -25,10 +25,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from core.classification_pipeline import ClassificationPipeline
 from core.tokenization_pipeline import TokenizationPipeline
 from core.rl_training_pipeline import RLTrainingPipeline
-from core.simulation_pipeline import SimulationPipeline
 
 
 class Brain2RLMainPipeline:
@@ -77,12 +75,7 @@ class Brain2RLMainPipeline:
         self.logger.info("Initializing pipeline components...")
         
         try:
-            # Initialize classification pipeline
-            self.classification_pipeline = ClassificationPipeline(
-                data_dir=self.config['data_dir'],
-                model_config=self.config['classification']
-            )
-            
+
             # Initialize tokenization pipeline
             self.tokenization_pipeline = TokenizationPipeline(
                 model_config=self.config['tokenization']
@@ -93,11 +86,7 @@ class Brain2RLMainPipeline:
                 model_config=self.config['rl_training']
             )
             
-            # Initialize simulation pipeline
-            self.simulation_pipeline = SimulationPipeline(
-                config=self.config['simulation']
-            )
-            
+        
             self.is_initialized = True
             self.logger.info("All pipeline components initialized successfully")
             
@@ -111,9 +100,6 @@ class Brain2RLMainPipeline:
         
         Args:
             data_path: Path to sensor data
-            
-        Returns:
-            Tuple of (classified_actions, confidence_scores)
         """
         if not self.is_initialized:
             self.initialize_pipelines()
@@ -362,9 +348,6 @@ def main():
             results = pipeline.run_full_pipeline(args.data_path)
             # Save results
             torch.save(results, os.path.join(args.output_dir, 'pipeline_results.pth'))
-        elif args.mode == 'classification':
-            results = pipeline.run_classification_only(args.data_path)
-            torch.save(results, os.path.join(args.output_dir, 'classification_results.pth'))
         elif args.mode == 'tokenization':
             # Load previous classification results
             classified_data = torch.load(os.path.join(args.output_dir, 'classification_results.pth'))
@@ -375,11 +358,7 @@ def main():
             token_data = torch.load(os.path.join(args.output_dir, 'tokenization_results.pth'))
             results = pipeline.run_rl_training_only(token_data)
             torch.save(results, os.path.join(args.output_dir, 'rl_training_results.pth'))
-        elif args.mode == 'simulation':
-            # Load previous training results
-            training_results = torch.load(os.path.join(args.output_dir, 'rl_training_results.pth'))
-            results = pipeline.run_simulation_only(training_results['trained_model'])
-            torch.save(results, os.path.join(args.output_dir, 'simulation_results.pth'))
+
         
         print(f"Pipeline completed successfully! Results saved to {args.output_dir}")
         
