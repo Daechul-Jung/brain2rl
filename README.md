@@ -67,22 +67,18 @@ Converts raw sensor data into action classifications using CNN models.
 
 **Usage:**
 ```bash
-# Train classifier
+# Train classifier (classification-only pipeline)
+python core/classification_pipeline.py \
+    --data-dir data/sensor_data/ \
+    --output-dir output/ \
+    --config config/classification_config.json
 
-### Should be fixed
-python brain2rl/cli.py classification \
-    --mode train \
-    --data-path data/sensor_data.npz \
-    --model-path models/classifier.pth \
-    --epochs 100 \
-    --batch-size 32
-
-# Classify new data
-python brain2rl/cli.py classification \
-    --mode classify \
-    --data-path data/new_sensor_data.npz \
-    --model-path models/classifier.pth \
-    --output-path results/predictions.npz
+# Run full classification pipeline with custom parameters
+python core/classification_pipeline.py \
+    --data-dir data/sensor_data/ \
+    --subject-ids subject_001 subject_002 \
+    --output-dir results/classification/ \
+    --config config/custom_classification.json
 ```
 
 ### 2. Tokenization Pipeline
@@ -97,21 +93,22 @@ Transforms classified time series data into tokens with Query/Key/Value matrices
 
 **Usage:**
 ```bash
-### Should be fixed
 # Train tokenizer
-python brain2rl/cli.py tokenization \
+python core/tokenization_pipeline.py \
+    --classified-data output/classification_results.pth \
     --mode train \
-    --classified-data results/predictions.npz \
-    --model-path models/tokenizer.pth \
+    --model-path models/tokenization/best_tokenizer.pth \
+    --epochs 100 \
     --embedding-dim 128 \
     --n-tokens 512
 
-# Generate tokens
-python brain2rl/cli.py tokenization \
+# Generate tokens from classified data
+python core/tokenization_pipeline.py \
+    --classified-data output/classification_results.pth \
     --mode tokenize \
-    --classified-data results/predictions.npz \
-    --model-path models/tokenizer.pth \
-    --output-path results/tokens.npz
+    --model-path models/tokenization/best_tokenizer.pth \
+    --embedding-dim 128 \
+    --n-tokens 512
 ```
 
 ### 3. RL Training Pipeline
@@ -124,32 +121,205 @@ Trains OpenArm control using token-guided reinforcement learning.
 
 **Usage:**
 ```bash
-# Train RL agent
-python3 models/rl/launch/try_mj.py \
-  --algo reppo \
-  --sim mujoco \
-  --mjcf ~/brain2rl/external/openarm_mujoco/v1/scene.xml \
-  --render --steps 1000
+# Train RL agent with token guidance
+python core/rl_training_pipeline.py \
+    --token-data output/tokenization_results.npz \
+    --mode train \
+    --model-path models/rl/token_guided_agent.pth \
+    --episodes 1000 \
+    --algorithm ppo \
+    --learning-rate 0.0003
 
-  python3 models/rl/launch/try_gym.py \
-  --algo reppo \
-  --sim mujoco \
-  --mjcf ~/brain2rl/external/openarm_mujoco/v1/scene.xml \
-  --render --steps 1000
+# Evaluate trained RL agent
+python core/rl_training_pipeline.py \
+    --token-data output/tokenization_results.npz \
+    --mode evaluate \
+    --model-path models/rl/token_guided_agent.pth \
+    --algorithm ppo
+
+# Run traditional RL training (without tokens)
+python3 models/rl/launch/try_mj.py \
+    --algo reppo \
+    --sim mujoco \
+    --mjcf external/openarm_mujoco/v1/scene.xml \
+    --render --steps 1000
+
+python3 models/rl/launch/try_gym.py \
+    --algo reppo \
+    --sim mujoco \
+    --mjcf external/openarm_mujoco/v1/scene.xml \
+    --render --steps 1000
 ```
+
+### 4. Main Pipeline Orchestrator
+
+Runs the complete end-to-end pipeline from sensor data to RL training.
+
+**Features:**
+- Complete pipeline orchestration
+- Individual component execution
+- Real-time pipeline support (planned)
+- Configuration management
+
+**Usage:**
+```bash
+# Run complete end-to-end pipeline
+python core/main_pipeline.py \
+    --mode full \
+    --data-path data/sensor_data/ \
+    --output-dir output/ \
+    --config config/pipeline_config.json
+
+# Run individual pipeline components
+python core/main_pipeline.py \
+    --mode tokenization \
+    --data-path output/classification_results.pth \
+    --output-dir output/ \
+    --config config/pipeline_config.json
+
+python core/main_pipeline.py \
+    --mode rl_training \
+    --data-path output/tokenization_results.pth \
+    --output-dir output/ \
+    --config config/pipeline_config.json
+
+# Run with custom device selection
+python core/main_pipeline.py \
+    --mode full \
+    --data-path data/sensor_data/ \
+    --device cuda \
+    --output-dir output/ \
+    --config config/pipeline_config.json
+```
+
+### 5. Simulation and Testing
 
 **Features:**
 - Multiple manipulation tasks (reach, grasp, manipulation)
 - Performance monitoring and visualization
-- OpenArm 
+- OpenArm robot simulation
+- MuJoCo and Gymnasium environments
 
 **Usage:**
 ```bash
-# Run simulation
- ########### Need to rewrite ############
+# Test MuJoCo environment
+python3 models/rl/launch/try_mj.py \
+    --algo reppo \
+    --sim mujoco \
+    --mjcf external/openarm_mujoco/v1/scene.xml \
+    --render --steps 1000
+
+# Test Gymnasium environment
+python3 models/rl/launch/try_gym.py \
+    --algo reppo \
+    --sim mujoco \
+    --mjcf external/openarm_mujoco/v1/scene.xml \
+    --render --steps 1000
+
+# Compare different algorithms
+python models/rl/launch/compare_algo.py \
+    --algos ppo reppo sac \
+    --sim mujoco \
+    --mjcf external/openarm_mujoco/v1/scene.xml \
+    --steps 1000
 ```
 
 ## Usage Examples
+
+### Complete Pipeline Workflow
+
+Here's how to run the complete Brain2RL pipeline from start to finish:
+
+```bash
+# Step 1: Prepare your sensor data
+# Place your EEG/sensor data in data/sensor_data/ directory
+# Expected format: .npz files with 'X' (data) and 'y' (labels) arrays
+
+# Step 2: Run the complete pipeline
+python core/main_pipeline.py \
+    --mode full \
+    --data-path data/sensor_data/ \
+    --output-dir output/ \
+    --config config/pipeline_config.json
+
+# Step 3: Check results
+ls output/
+# You should see:
+# - classification_results.pth
+# - tokenization_results.npz  
+# - rl_training_results.pth
+# - pipeline_results.pth
+```
+
+### Individual Component Workflow
+
+If you prefer to run components individually:
+
+```bash
+# Step 1: Classification
+python core/classification_pipeline.py \
+    --data-dir data/sensor_data/ \
+    --output-dir output/ \
+    --config config/classification_config.json
+
+# Step 2: Tokenization
+python core/tokenization_pipeline.py \
+    --classified-data output/classification_results.pth \
+    --mode train \
+    --model-path models/tokenization/best_tokenizer.pth \
+    --epochs 100
+
+python core/tokenization_pipeline.py \
+    --classified-data output/classification_results.pth \
+    --mode tokenize \
+    --model-path models/tokenization/best_tokenizer.pth
+
+# Step 3: RL Training
+python core/rl_training_pipeline.py \
+    --token-data output/tokenization_results.npz \
+    --mode train \
+    --model-path models/rl/token_guided_agent.pth \
+    --episodes 1000
+
+# Step 4: Evaluation
+python core/rl_training_pipeline.py \
+    --token-data output/tokenization_results.npz \
+    --mode evaluate \
+    --model-path models/rl/token_guided_agent.pth
+```
+
+### Configuration Files
+
+Create configuration files for customizing the pipeline:
+
+```json
+// config/pipeline_config.json
+{
+    "classification": {
+        "window_size": 100,
+        "batch_size": 32,
+        "classifier_lr": 0.001,
+        "classifier_epochs": 100,
+        "classifier_dropout": 0.3
+    },
+    "tokenization": {
+        "embedding_dim": 128,
+        "n_tokens": 512,
+        "nhead": 8,
+        "num_encoder_layers": 6,
+        "dropout": 0.1,
+        "max_sequence_length": 1000
+    },
+    "rl_training": {
+        "algorithm": "ppo",
+        "learning_rate": 0.0003,
+        "batch_size": 64,
+        "gamma": 0.99,
+        "clip_range": 0.2,
+        "episodes": 1000
+    }
+}
+```
 
 ### Project Structure
 
