@@ -26,7 +26,7 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌──────────────────┐
 │   Sensor Data   │───▶│  Classification  │───▶│  Tokenization   │───▶│   RL Training    │
-│  (EEG/etc)      │    │                  │    │ (Transformer +  │    │ (PPO/SAC with    │
+│  (EEG)          │    │                  │    │ (Transformer +  │    │ (PPO/REPPO with  │
 │                 │    │                  │    │  Attention)     │    │  Token Guidance) │
 └─────────────────┘    └──────────────────┘    └─────────────────┘    └──────────────────┘
                                                         │                        │
@@ -57,7 +57,9 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 
 ### 1. Classification Pipeline
 
-Converts raw sensor data into action classifications using CNN models.
+Converts raw sensor data into action classifications using CNN models. 
+(Trying to find out better model for classifying time series data)
+
 
 **Features:**
 - Multi-channel EEG/sensor data processing

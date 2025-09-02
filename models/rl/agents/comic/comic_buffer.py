@@ -1,10 +1,10 @@
 import torch
 from typing import Any, Dict
-
+from tensordict import TensorDict
 
 class RolloutBuffer:
     """Time-major storage for on-policy rollouts."""
-    def __init__(self, capacity: int, device: str = "cpu"):
+    def __init__(self, capacity: int, device: str = "cuda"):
         # TODO: allocate placeholders
         pass
 
