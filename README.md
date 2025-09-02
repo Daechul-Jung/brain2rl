@@ -351,10 +351,6 @@ brain2rl/
 2. **Tokenization Models**: Add to `brain2rl/models/tokenization/`
 3. **RL Algorithms**: Add to `brain2rl/models/rl/agents`
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Citation
 
 If you use Brain2RL in your research, please cite:
@@ -372,7 +368,6 @@ If you use Brain2RL in your research, please cite:
 
 - **Email**: jungdaechul@berkeley.edu
 - **GitHub**: https://github.com/Daechul-Jung/brain2rl
-- **Documentation**: https://brain2rl.readthedocs.io
 
 ---
 
