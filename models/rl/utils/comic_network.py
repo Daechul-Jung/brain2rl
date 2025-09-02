@@ -67,29 +67,56 @@ class FCNN(nn.Module):
 
 
 class ReferenceEncoder(nn.Module):
-    """π_HL(z | s, s_ref) -> Normal distribution over latent z."""
-    def __init__(self, observation_dim: int, ref_dim: int, z_dim: int):
+    """
+    Reference encoder return latent variable z distribution
+    pi_HL(z | s, s_ref) -> Normal distribution over latent z.
+    """
+    def __init__(self, observation_dim: int, ref_dim: int, z_dim: int, device: str):
         super().__init__()
         self.observation_dim = observation_dim
         self.ref_dim = ref_dim
         self.z_dim = z_dim
         self.encoder = FCNN(
             in_feature = observation_dim + ref_dim,
+            out_feature = 2 * z_dim,
+            hidden_dim= 512,
+            hidden_activation='swish',
+            output_activation=None,
+            use_norm=True,
+            use_output_norm=False, 
+            layers = 2,
+            device=device
         )
-        # TODO: declare submodules/params (e.g., MLP for mu, logstd param)
+        self.min_std = 1e-3
 
     def forward(self, s: torch.Tensor, s_ref: torch.Tensor) -> Normal:
-        """TODO: return Normal(mu, std) without implementing details."""
-        pass
+        
+        x = self.encoder(torch.cat([s, s_ref], dim = -1))
+        
+        mean, log_std = torch.split(x, x.shape[-1]//2, dim=-1)
+        
+        std = torch.exp(log_std) + self.min_std
+        pi = Normal(mean, std)
+        return pi
 
 class LowLevelPolicy(nn.Module):
-    """π_LL(a | s, z) — simple Gaussian policy. """
-    def __init__(self, state_dim: int, z_dim: int, act_dim: int):
+    """pi_LL(a | s, z) — simple Gaussian policy. """
+    def __init__(self, state_dim: int, z_dim: int, act_dim: int, device: str):
         super().__init__()
-        # TODO: declare mu_net, logstd param
+        self.model = FCNN(
+            in_feature = state_dim + z_dim,
+            out_feature = 2 * act_dim,
+            hidden_dim = 512,
+            hidden_activation = 'swish',
+            output_activation=None,
+            use_norm = True,
+            use_output_norm = False,
+            layers = 2,
+            device = device
+        )
 
     def dist(self, s: torch.Tensor, z: torch.Tensor) -> Normal:
-        """TODO: construct Normal distribution."""
+        """construct Normal distribution."""
         # TODO
         pass
 
@@ -99,7 +126,7 @@ class LowLevelPolicy(nn.Module):
         pass
 
 class HighLevelPolicy(nn.Module):
-    """Task-specific high-level policy: z ~ π_HL^{task}(·|o)."""
+    """Task-specific high-level policy: z ~ pi_HL^{task}(·|o)."""
     def __init__(self, obs_dim: int, z_dim: int):
         super().__init__()
         # TODO: declare mu_net, logstd param
@@ -123,7 +150,7 @@ class MultiHeadValue(nn.Module):
 
 
 class MixtureOfGaussiansPolicy(nn.Module):
-    """Optional: π(a|s,z)=∑_i w_i(s,z) N(a; μ_i(s), σ_i(s))."""
+    """Optional: pi(a|s,z)=sum_i w_i(s,z) N(a; mu_i(s), o_i(s))."""
     def __init__(self, state_dim: int, z_dim: int, act_dim: int, num_components: int = 4):
         super().__init__()
         # TODO: declare torso for primitives (s), per-component μ/σ, mixing head (s,z)
@@ -135,7 +162,7 @@ class MixtureOfGaussiansPolicy(nn.Module):
 
 
 class ProductOfGaussiansPolicy(nn.Module):
-    """Optional: π(a|s,z) ∝ ∏_i N(a; μ_i(s), σ_i(s))^{w_i(s,z)}."""
+    """Optional: pi(a|s,z) ~ all_mult_i N(a; mu_i(s), o_i(s))^{w_i(s,z)}."""
     def __init__(self, state_dim: int, z_dim: int, act_dim: int, num_experts: int = 4):
         super().__init__()
         # TODO: declare experts and weighting head

@@ -159,7 +159,7 @@ class Actor(nn.Module):
     def __init__(self, observation_dim, action_dim, 
                  entropy_start: float, kl_start: float,
                  hidden_dim = 256, use_norm = True, 
-                 layers = 4, min_std = 0.1, device = None):
+                 layers = 4, min_std = 0.01, device = None):
         super().__init__()
         ### Actor model for getting probability including mean and std. By using this, making distribution and get action
 

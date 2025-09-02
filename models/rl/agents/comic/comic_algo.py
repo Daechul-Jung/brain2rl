@@ -8,19 +8,29 @@ class OnPolicyAC:
         self,
         encoder, ## ReferenceEncoder
         low_level_policy, ## LowLevelPolicy (or mixture/product)
-        value_fn, ## MultiHeadValue
+        value_fn, ## MultiHeadValue (critic)
         enc_opt, low_opt, v_opt, ## Encoder, low-level, value optimizer
         beta: float = 1e-4,
         gamma: float = 0.99,
         lam: float = 0.95,
         ):
-        # TODO: store handles and hyperparams
-        pass
+        self.encoder = encoder
+        self.ll_policy = low_level_policy
+        self.critic = value_fn
+        self.encoder_opt = enc_opt
+        self.ll_policy_opt = low_opt
+        self.critic_opt = v_opt
+        self.beta = beta
+        self.gamma = gamma
+        self.lmbda = lam
 
     def _gae(self, rewards: torch.Tensor, values: torch.Tensor, dones: torch.Tensor):
         """TODO: return (advantages, returns)."""
-        # TODO
-        pass
+        
+        for t in reversed(range(len(rewards))):
+            ...
+        
+        return
 
     def _actor_loss(self, logp: torch.Tensor, advantages: torch.Tensor):
         """This loss is based on 'on-policy variant of Maximum a Posteriori Policy Optimization' """
