@@ -68,13 +68,13 @@ Converts raw sensor data into action classifications using CNN models.
 **Usage:**
 ```bash
 # Train classifier (classification-only pipeline)
-python core/classification_pipeline.py \
+python3 core/classification_pipeline.py \
     --data-dir data/sensor_data/ \
     --output-dir output/ \
     --config config/classification_config.json
 
 # Run full classification pipeline with custom parameters
-python core/classification_pipeline.py \
+python3 core/classification_pipeline.py \
     --data-dir data/sensor_data/ \
     --subject-ids subject_001 subject_002 \
     --output-dir results/classification/ \
@@ -94,7 +94,7 @@ Transforms classified time series data into tokens with Query/Key/Value matrices
 **Usage:**
 ```bash
 # Train tokenizer
-python core/tokenization_pipeline.py \
+python3 core/tokenization_pipeline.py \
     --classified-data output/classification_results.pth \
     --mode train \
     --model-path models/tokenization/best_tokenizer.pth \
@@ -103,7 +103,7 @@ python core/tokenization_pipeline.py \
     --n-tokens 512
 
 # Generate tokens from classified data
-python core/tokenization_pipeline.py \
+python3 core/tokenization_pipeline.py \
     --classified-data output/classification_results.pth \
     --mode tokenize \
     --model-path models/tokenization/best_tokenizer.pth \
@@ -122,7 +122,7 @@ Trains OpenArm control using token-guided reinforcement learning.
 **Usage:**
 ```bash
 # Train RL agent with token guidance
-python core/rl_training_pipeline.py \
+python3 core/rl_training_pipeline.py \
     --token-data output/tokenization_results.npz \
     --mode train \
     --model-path models/rl/token_guided_agent.pth \
@@ -131,7 +131,7 @@ python core/rl_training_pipeline.py \
     --learning-rate 0.0003
 
 # Evaluate trained RL agent
-python core/rl_training_pipeline.py \
+python3 core/rl_training_pipeline.py \
     --token-data output/tokenization_results.npz \
     --mode evaluate \
     --model-path models/rl/token_guided_agent.pth \
@@ -236,7 +236,7 @@ Here's how to run the complete Brain2RL pipeline from start to finish:
 # Expected format: .npz files with 'X' (data) and 'y' (labels) arrays
 
 # Step 2: Run the complete pipeline
-python core/main_pipeline.py \
+python3 core/main_pipeline.py \
     --mode full \
     --data-path data/sensor_data/ \
     --output-dir output/ \
@@ -257,32 +257,32 @@ If you prefer to run components individually:
 
 ```bash
 # Step 1: Classification
-python core/classification_pipeline.py \
+python3 core/classification_pipeline.py \
     --data-dir data/sensor_data/ \
     --output-dir output/ \
     --config config/classification_config.json
 
 # Step 2: Tokenization
-python core/tokenization_pipeline.py \
+python3 core/tokenization_pipeline.py \
     --classified-data output/classification_results.pth \
     --mode train \
     --model-path models/tokenization/best_tokenizer.pth \
     --epochs 100
 
-python core/tokenization_pipeline.py \
+python3 core/tokenization_pipeline.py \
     --classified-data output/classification_results.pth \
     --mode tokenize \
     --model-path models/tokenization/best_tokenizer.pth
 
 # Step 3: RL Training
-python core/rl_training_pipeline.py \
+python3 core/rl_training_pipeline.py \
     --token-data output/tokenization_results.npz \
     --mode train \
     --model-path models/rl/token_guided_agent.pth \
     --episodes 1000
 
 # Step 4: Evaluation
-python core/rl_training_pipeline.py \
+python3 core/rl_training_pipeline.py \
     --token-data output/tokenization_results.npz \
     --mode evaluate \
     --model-path models/rl/token_guided_agent.pth
