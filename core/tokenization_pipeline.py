@@ -24,7 +24,7 @@ import math
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from models.tokenization.brain_tokenizer import BrainTokenizer
+from models.tokenization.brain_tokenizer_transformer import BrainTokenizer
 
 
 class MultiHeadAttention(nn.Module):

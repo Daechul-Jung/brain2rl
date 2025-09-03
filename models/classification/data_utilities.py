@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from typing import Dict, List, Optional, Tuple, Any
 
-from .time_series_dataset import TimeSeriesDataset
+from time_series_dataset import TimeSeriesDataset
 
 
 def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None) -> Tuple[np.ndarray, np.ndarray]:

@@ -25,21 +25,23 @@ class OnPolicyAC:
         self.lmbda = lam
 
     def _gae(self, rewards: torch.Tensor, values: torch.Tensor, dones: torch.Tensor):
-        """TODO: return (advantages, returns)."""
-        
+        """Calculating Generalized Advantage Estimation (GAE-Lambda).
+        td = r_t + gamma * (1- done_t) * v(s_t+l) - v(s_t)
+        """
+        adv = torch.zeros_like(rewards)
         for t in reversed(range(len(rewards))):
-            ...
-        
-        return
+            td = rewards[t] + self.gamma * (1 - dones[t]) * values[t+1] - values[t]
+            gae = td + self.gamma * self.lmbda * (1)
+        return adv
 
     def _actor_loss(self, logp: torch.Tensor, advantages: torch.Tensor):
         """This loss is based on 'on-policy variant of Maximum a Posteriori Policy Optimization' """
-        # TODO
+        
         pass
 
     def _critic_loss(self, values: torch.Tensor, targets: torch.Tensor):
-        """TODO: compute value loss skeleton."""
-        # TODO
+        """ MSE loss between values and targets """
+        
         pass
 
     def _latent_kl(self, qz, pz) -> torch.Tensor:

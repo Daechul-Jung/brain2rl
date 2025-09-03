@@ -153,7 +153,7 @@ class MixtureOfGaussiansPolicy(nn.Module):
     """Optional: pi(a|s,z)=sum_i w_i(s,z) N(a; mu_i(s), o_i(s))."""
     def __init__(self, state_dim: int, z_dim: int, act_dim: int, num_components: int = 4):
         super().__init__()
-        # TODO: declare torso for primitives (s), per-component μ/σ, mixing head (s,z)
+        # TODO: declare torso for primitives (s), per-component, mixing head (s,z)
 
     def forward(self, s: torch.Tensor, z: torch.Tensor):
         """TODO: return mixture parameters (mus, stds, mix_logits)."""
@@ -169,5 +169,4 @@ class ProductOfGaussiansPolicy(nn.Module):
 
     def forward(self, s: torch.Tensor, z: torch.Tensor):
         """TODO: return experts' params and weights."""
-        # TODO
         pass
