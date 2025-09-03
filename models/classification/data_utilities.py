@@ -1,7 +1,5 @@
 """
 Data Utilities Module
-=====================
-
 This module provides utilities for loading, preprocessing, and managing sensor data
 for the classification pipeline.
 """
@@ -65,7 +63,7 @@ def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None) -> 
                 continue
             
             X = df[available_columns].values
-            y = df['label'].values if 'label' in df.columns else np.zeros(len(X))
+            y = df['label'].values if 'label' in df.columns else np.zeros(len(X)) #### Should be replaced into action indicator 
             
             all_data.append(X)
             all_labels.append(y)
