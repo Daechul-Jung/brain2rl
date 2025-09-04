@@ -32,6 +32,7 @@ class OnPolicyAC:
         for t in reversed(range(len(rewards))):
             td = rewards[t] + self.gamma * (1 - dones[t]) * values[t+1] - values[t]
             gae = td + self.gamma * self.lmbda * (1)
+            adv[t] = gae
         return adv
 
     def _actor_loss(self, logp: torch.Tensor, advantages: torch.Tensor):
