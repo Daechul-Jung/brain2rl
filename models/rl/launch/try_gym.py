@@ -34,8 +34,8 @@ def render_agent(agent, env_name: str, episodes: int = 1):
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")
-    parser.add_argument('--env', type=str, default='HumanoidStandup-v5', help='Gym environment name')   ##### HumanoidStandup-v5, Reacher-v5, Humanoid-v5
-    parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac', 'reppo'], help='RL algorithm to use')
+    parser.add_argument('--env', type=str, default='HumanoidStandup-v5', help='Gym environment name')   #####  HumanoidStandup-v5, Reacher-v5, Humanoid-v5
+    parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac', 'reppo', 'comic'], help='RL algorithm to use')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of training episodes')
     parser.add_argument('--max_steps', type=int, default=1000, help='Max steps per episode')
     parser.add_argument('--render', action='store_true', help='Render environment')
@@ -68,6 +68,7 @@ def main():
     elif args.algo == "ppo" :
         agent = PPOAgent(state_dim, action_dim, device)
         rewards = train_agent(env, agent, num_episodes=args.episodes, max_steps=args.max_steps, render = args.render)
+
     print(f"\nMean Reward: {np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
     # agent2 = PPOAgent(state_dim, action_dim)
     # ppo_reward = train_agent(env, agent2, num_episodes=782, max_steps=10000)

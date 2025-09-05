@@ -107,6 +107,7 @@ class OpenArmMjEnv:
         self.renderer.update_scene(self.data, camera=self.cam_id)
         rgb = self.renderer.render()                  
         return rgb
+    
     def _get_obs(self):
         base = [self.data.qpos.ravel(), self.data.qvel.ravel(), self._ee(), self._cup()]
         obs = np.concatenate(base).astype(np.float32)
@@ -125,7 +126,9 @@ class OpenArmMjEnv:
         return reward
     
     # ------------- RL API -------------
-    def reset(self, seed=None, options=None):
+    
+    def reset(self, seed=5678, options=None):
+
         if seed is not None: np.random.seed(seed)
         self.t = 0
         mujoco.mj_resetData(self.model, self.data)

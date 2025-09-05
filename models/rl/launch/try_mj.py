@@ -1,6 +1,8 @@
 import argparse, os, sys
 import gymnasium as gym
+
 sys.path.append(os.path.join(os.path.dirname(__file__), 'models', 'rl'))
+
 from models.rl.agents.reppo import *
 from models.rl.agents.ppo import *
 from models.rl.agents.sac import *
@@ -8,9 +10,11 @@ from models.rl.utils.train import train_reppo, train_agent_with_buffer, train_ag
 from models.rl.envs.openarm_mj_env import OpenArmMjEnv
 
 def make_env(sim, mjcf, steps, render):
+    
     if sim == "mujoco":
         # Use the new scene file with cameras and multiple cups
         xml = mjcf or os.path.join(os.path.dirname(__file__), '..', 'envs', 'openarm_scene_with_cameras.xml')
+
         return OpenArmMjEnv(
             xml_path=xml,
             camera='left_wrist_cam',  # Use the wrist-mounted camera
@@ -21,6 +25,7 @@ def make_env(sim, mjcf, steps, render):
             physics_rewards_weight=0.6,
             target_cup='cup1'  # Target the brown cup
         )
+    
     else:
         import gymnasium as gym
         return gym.make("Humanoid-v5")
