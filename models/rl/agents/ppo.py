@@ -200,7 +200,7 @@ class PPOAgent:
             dist = torch.distributions.Normal(mean, std)
             new_log_probs = dist.log_prob(actions).sum(dim=-1)
             ## should explain more mathematically
-            entropy = dist.entropy().sum(dim=-1) ### What is the entropy? It is the measure of uncertainty in the action distribution
+            entropy = dist.entropy().sum(dim=-1) ### It is the measure of uncertainty in the action distribution
             
             ### Importance Sampling ratio
             ratio = torch.exp(new_log_probs - old_log_probs) ### ratio = new_log_probs / old_log_probs
