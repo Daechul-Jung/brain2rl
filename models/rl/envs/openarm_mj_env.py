@@ -3,25 +3,38 @@ from gymnasium import spaces
 import imageio.v2 as imageio
 from models.rl.envs.vision_utils import *
 import os
+
+
 class OpenArmMjEnv:
     """OpenArm (left arm) reaching a cup; optional camera observations."""
     def __init__(self, xml_path: str, horizon=300, render=False,
                  action_scale=0.03, camera=None, camera_size=(256,256), camera_in_info = True, 
                  vision_rewards_weight = 0.4, physics_rewards_weight = 0.6, target_cup = 'cup1'):
+        
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data  = mujoco.MjData(self.model)
         self.horizon = horizon
         self.render  = render
         self.action_scale = action_scale
         self.t = 0
+        self.camera_size = camera_size
         self.vision_weight = vision_rewards_weight
         self.physic_weight = physics_rewards_weight
         self.target = target_cup
+        self.cup_geom_ids = self._geoms_matching(["cup"])
         self.reward_calc = RewardCalculator(
             vision_weight=vision_rewards_weight,
             physics_weight=physics_rewards_weight,
+            cup_geom_ids=self.cup_geom_ids,
+            camera_size=self.camera_size,
         )
-        self.vision_detector = CupDetector(camera_size)
+        
+        print("Cup geoms:", [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, g)
+                            for g in self.cup_geom_ids])
+
+        self.vision_detector = CupDetector(camera_size=self.camera_size,
+                                        cup_geom_ids=self.cup_geom_ids)
+
         ##############################
         cams = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_CAMERA, i) for i in range(self.model.ncam)]
         print("Cameras:", cams)
@@ -100,14 +113,20 @@ class OpenArmMjEnv:
     def _ee(self):  return self.data.site_xpos[self.sid_left_ee].copy() ### End effector position
     def _cup(self): return self.data.site_xpos[self.sid_cup_top].copy() ### Cup top position
 
-    def _get_pixels(self):
-        """Return HxWx3 uint8 RGB from the configured camera, or None."""
+    def _get_pixels(self, with_seg=False):
         if self.renderer is None:
-            return None
-        self.renderer.update_scene(self.data, camera=self.cam_id)
-        rgb = self.renderer.render()                  
-        return rgb
-    
+            return None if not with_seg else (None, None)
+        self.renderer.update_scene(self.data, camera=self.cam_id)  # use id
+        if with_seg:
+            try:
+                rgb, seg = self.renderer.render(segmentation=True)
+            except TypeError:
+                # older mujoco: returns depth not seg; fallback to rgb only
+                rgb, seg = self.renderer.render(), None
+            return rgb, seg
+        else:
+            return self.renderer.render()
+
     def _get_obs(self):
         base = [self.data.qpos.ravel(), self.data.qvel.ravel(), self._ee(), self._cup()]
         obs = np.concatenate(base).astype(np.float32)
@@ -115,6 +134,14 @@ class OpenArmMjEnv:
             self.renderer.update_scene(self.data, camera=self.cam_id) 
             _ = self.renderer.render()
         return obs
+    
+    def _geoms_matching(self, substr_list):
+        out = []
+        for gid in range(self.model.ngeom):
+            nm = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gid)
+            if nm and all(s in nm for s in substr_list):
+                out.append(gid)
+        return np.asarray(out, dtype=np.int32)
     
     def calculate_reward(self, info):
         """
@@ -152,57 +179,58 @@ class OpenArmMjEnv:
         return obs, info
 
     def step(self, action):
+        # 1) physics
         action = np.clip(action, self.action_space.low, self.action_space.high) * self.action_scale
         self.data.ctrl[self.left_actuators] = action
         mujoco.mj_step(self.model, self.data)
         self.t += 1
 
-        ee  = self._ee()
-        cup = self._cup()
+        ee, cup = self._ee(), self._cup()
+        dist = float(np.linalg.norm(ee - cup))
 
-        # get pixels once per step if we want vision-based reward
-        pix = self._get_pixels() if (self.renderer is not None and self.camera_in_info) else None
+        # 2) render once (RGB + segmentation)
+        rgb, seg = (None, None)
+        if self.renderer is not None and self.camera_in_info:
+            rgb, seg = self._get_pixels(with_seg=True)
 
-        # combine physics+vision rewards from your utility
+        # 3) see if the cup is even in view (fast probe)
+        if seg is not None and self.cup_geom_ids.size and (self.t % 50 == 0):
+            ids = np.unique(seg if seg.ndim == 2 else seg[..., 0])
+            seen = np.intersect1d(ids, self.cup_geom_ids)
+            print(f"[t={self.t}] cup geom ids visible: {seen.tolist()}")
+
+        # 4) reward (now vision uses seg)
         total_reward, vis_info = self.reward_calc.calculate_total_reward(
-            image=pix if pix is not None else np.zeros((1,1,3), dtype=np.uint8),
-            ee_pos=ee,
-            cup_pos=cup,
-            target_cup=self.target
+            image=rgb if rgb is not None else np.zeros((1,1,3), dtype=np.uint8),
+            ee_pos=ee, cup_pos=cup, target_cup=self.target, seg=seg
         )
 
-        terminated = vis_info.get("distance", np.inf) < 0.03
+        # 5) detection + optional overlay (debug)
+        detected = {}
+        if rgb is not None:
+            detected = self.vision_detector.detect_cups(rgb, seg=seg)
+            if (self.t % 100) == 0:
+                os.makedirs("debug", exist_ok=True)
+                overlay = self.vision_detector.visualize_detection(rgb, detected) if detected else rgb
+                imageio.imwrite(os.path.join("debug", f"detect_{self.t:06d}.png"), overlay)
+
+        # 6) termination
+        terminated = dist < 0.03
         truncated  = self.t >= self.horizon
 
+        # 7) info
         info = {
-            "dist": vis_info.get("distance", np.linalg.norm(ee - cup)),
-            "physics_reward": vis_info.get("physics_reward", 0.0),
-            "vision_reward": vis_info.get("vision_reward", 0.0),
-            "total_reward": total_reward,
+            "dist": dist,
+            "physics_reward": float(vis_info.get("physics_reward", -dist)),
+            "vision_reward": float(vis_info.get("vision_reward", 0.0)),
+            "total_reward": float(total_reward),
             "vision_info": vis_info.get("vision_info", {}),
+            "detected_cups": int(len(detected)),
         }
-        if self.camera_in_info and pix is not None:
-            info["pixels"] = pix
+        if self.camera_in_info and rgb is not None:
+            info["pixels"] = rgb
 
         if self.render and self.viewer:
             self.viewer.sync()
 
-        detected = {}
-        if pix is not None:
-            # run detector on the current camera frame
-            detected = self.reward_calc.cup_detector.detect_cups(pix)
-            print(detected)
-            info["detected_cups_dict"] = detected  # centers/areas/bboxes per cup
-
-            # draw boxes & save every 100 steps (tweak cadence as you like)
-            if detected:
-                vis_img = self.reward_calc.cup_detector.visualize_detection(pix, detected)
-                os.makedirs("debug", exist_ok=True)
-                debug_path = os.path.join("debug", f"cupdet_{self.t:06d}.png")
-                imageio.imwrite(debug_path, vis_img)
-                info["debug_vis_saved"] = debug_path
-
         return self._get_obs(), float(total_reward), terminated, truncated, info
-
-
-    

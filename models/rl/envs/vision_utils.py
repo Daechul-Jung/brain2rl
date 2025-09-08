@@ -10,10 +10,12 @@ logger = logging.getLogger(__name__)
 class CupDetector:
     """Computer vision-based cup detector for the OpenArm environment"""
     
-    def __init__(self, camera_size: Tuple[int, int] = (256, 256)):
+    def __init__(self, camera_size: Tuple[int, int] = (256, 256),
+                 cup_geom_ids: Optional[np.ndarray] = None):
         self.camera_size = camera_size
         self.height, self.width = camera_size
-        
+        self.cup_geom_ids = (None if cup_geom_ids is None
+                             else np.asarray(cup_geom_ids, dtype=np.int32))
         # Color ranges for different cups (HSV color space)
         self.cup_colors = {
             'cup1': {  # Brown cup
@@ -34,7 +36,7 @@ class CupDetector:
         self.min_contour_area = 100
         self.max_contour_area = 5000
         
-    def detect_cups(self, image: np.ndarray) -> Dict[str, Dict]:
+    def detect_cups(self, image: np.ndarray, seg: np.ndarray | None = None) -> Dict[str, Dict]:
         """
         Detect cups in the camera image using color-based segmentation
         
@@ -46,58 +48,64 @@ class CupDetector:
         """
         if image is None:
             return {}
-            
+        
+        if seg is not None and self.cup_geom_ids is not None and self.cup_geom_ids.size > 0:
+            if seg.ndim == 3:  # sometimes HxWx1
+                seg = seg[..., 0]
+            mask = np.isin(seg, self.cup_geom_ids)
+            if not np.any(mask):
+                return {}
+            mask_u8 = (mask.astype(np.uint8) * 255)
+            contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            det = {}
+            for i, cnt in enumerate(contours):
+                area = cv2.contourArea(cnt)
+                if area < self.min_contour_area:
+                    continue
+                x, y, w, h = cv2.boundingRect(cnt)
+                cx, cy = x + w // 2, y + h // 2
+                nx, ny = cx / self.width, cy / self.height
+                det[f"cup{i+1}"] = {
+                    "center": (int(cx), int(cy)),
+                    "normalized_center": (float(nx), float(ny)),
+                    "area": float(area),
+                    "distance_from_center": float(np.hypot(nx - 0.5, ny - 0.5)),
+                    "bbox": (int(x), int(y), int(w), int(h)),
+                }
+            return det
         # Convert to HSV color space
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-        
-        detected_cups = {}
-        
-        for cup_name, color_range in self.cup_colors.items():
-            # Create mask for this color range
-            mask = cv2.inRange(hsv, color_range['lower'], color_range['upper'])
-            
-            # Apply morphological operations to clean up the mask
-            kernel = np.ones((5, 5), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            
-            # Find contours
+        detected = {}
+        ranges = {
+            'cup1': {'lower': np.array([  5,  30,  20]), 'upper': np.array([30, 255, 255])},  # brownish
+            'cup2': {'lower': np.array([ 35,  30,  20]), 'upper': np.array([85, 255, 255])},  # green
+            'cup3': {'lower': np.array([ 95,  30,  20]), 'upper': np.array([135,255, 255])},  # blue
+        }
+        for name, cr in ranges.items():
+            mask = cv2.inRange(hsv, cr['lower'], cr['upper'])
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5,5), np.uint8))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  np.ones((5,5), np.uint8))
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            if contours:
-                # Find the largest contour (most likely the cup)
-                largest_contour = max(contours, key=cv2.contourArea)
-                area = cv2.contourArea(largest_contour)
-                
-                if self.min_contour_area < area < self.max_contour_area:
-                    # Get bounding rectangle
-                    x, y, w, h = cv2.boundingRect(largest_contour)
-                    
-                    # Calculate center point
-                    center_x = x + w // 2
-                    center_y = y + h // 2
-                    
-                    # Calculate normalized position (0-1)
-                    norm_x = center_x / self.width
-                    norm_y = center_y / self.height
-                    
-                    # Calculate distance from image center
-                    center_distance = np.sqrt((norm_x - 0.5)**2 + (norm_y - 0.5)**2)
-                    
-                    detected_cups[cup_name] = {
-                        'center': (center_x, center_y),
-                        'normalized_center': (norm_x, norm_y),
-                        'area': area,
-                        'distance_from_center': center_distance,
-                        'bbox': (x, y, w, h)
-                    }
-                    
-                    logger.debug(f"Detected {cup_name} at ({center_x}, {center_y}) with area {area}")
-        
-        return detected_cups
+            if not contours:
+                continue
+            cnt = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(cnt)
+            if not (self.min_contour_area <= area <= self.max_contour_area):
+                continue
+            x, y, w, h = cv2.boundingRect(cnt)
+            cx, cy = x + w // 2, y + h // 2
+            nx, ny = cx / self.width, cy / self.height
+            detected[name] = {
+                "center": (int(cx), int(cy)),
+                "normalized_center": (float(nx), float(ny)),
+                "area": float(area),
+                "distance_from_center": float(np.hypot(nx - 0.5, ny - 0.5)),
+                "bbox": (int(x), int(y), int(w), int(h)),
+            }
+        return detected
     
-    def calculate_vision_reward(self, image: np.ndarray, target_cup: str = 'cup1') -> Tuple[float, Dict]:
-        detected_cups = self.detect_cups(image)
+    def calculate_vision_reward(self, image: np.ndarray, target_cup: str = 'cup1', seg: Optional[np.ndarray] = None) -> Tuple[float, Dict]:
+        detected_cups = self.detect_cups(image, seg=seg)
         
         if not detected_cups:
             # No cups detected - negative reward
@@ -108,7 +116,9 @@ class CupDetector:
         
         if not target_visible:
             # Target cup not visible - small negative reward
-            return -0.5, {'detected_cups': len(detected_cups), 'target_visible': False}
+            best_name = min(detected_cups, key=lambda k: detected_cups[k]['distance_from_center'])
+            target_cup = best_name
+            target_visible = True
         
         # Target cup is visible - calculate reward based on position
         target_info = detected_cups[target_cup]
@@ -140,7 +150,7 @@ class CupDetector:
         }
         
         return total_reward, info
-    
+
     def visualize_detection(self, image: np.ndarray, detected_cups: Dict) -> np.ndarray:
         """
         Draw detection results on the image for debugging
@@ -174,53 +184,20 @@ class CupDetector:
 class RewardCalculator:
     """Calculate comprehensive rewards combining vision and physics"""
     
-    def __init__(self, vision_weight: float = 0.4, physics_weight: float = 0.6):
+    def __init__(self, vision_weight: float = 0.4, physics_weight: float = 0.6,
+                 cup_geom_ids: Optional[np.ndarray] = None, camera_size: Tuple[int,int]=(256,256)):
         self.vision_weight = vision_weight
         self.physics_weight = physics_weight
-        self.cup_detector = CupDetector()
+        self.cup_detector = CupDetector(camera_size=camera_size, cup_geom_ids=cup_geom_ids)
         
-    def calculate_total_reward(self, 
-                             image: np.ndarray, 
-                             ee_pos: np.ndarray, 
-                             cup_pos: np.ndarray,
-                             target_cup: str = 'cup1') -> Tuple[float, Dict]:
-        """
-        Calculate total reward combining computer vision and physics-based rewards
-        
-        Args:
-            image: Camera image
-            ee_pos: End effector position
-            cup_pos: Cup position
-            target_cup: Target cup name
-            
-        Returns:
-            Tuple of (total_reward, info_dict)
-        """
-        # Physics-based reward (distance to cup)
-        dist = np.linalg.norm(ee_pos - cup_pos)
-        physics_reward = -dist  # Closer is better
-        
-        # Add shaping reward for being close
-        if dist < 0.2:
-            physics_reward += 0.1 * (0.2 - dist)
-        
-        # Vision-based reward
-        vision_reward, vision_info = self.cup_detector.calculate_vision_reward(image, target_cup)
-        
-        # Combine rewards
-        total_reward = (self.physics_weight * physics_reward + 
-                       self.vision_weight * vision_reward)
-        
-        # Additional reward for successful task completion
-        if dist < 0.03:  # Very close to cup
-            total_reward += 10.0  # Large completion bonus
-        
-        info = {
-            'physics_reward': physics_reward,
-            'vision_reward': vision_reward,
-            'total_reward': total_reward,
-            'distance': dist,
-            'vision_info': vision_info
-        }
-        
+    def calculate_total_reward(self, image: np.ndarray, ee_pos: np.ndarray, cup_pos: np.ndarray,
+                               target_cup: str = 'cup1', seg: Optional[np.ndarray] = None) -> Tuple[float, Dict]:
+        dist = float(np.linalg.norm(ee_pos - cup_pos))
+        physics_reward = -dist + (0.1 * (0.2 - dist) if dist < 0.2 else 0.0)
+        vision_reward, vision_info = self.cup_detector.calculate_vision_reward(image, target_cup, seg=seg)
+        total_reward = self.physics_weight * physics_reward + self.vision_weight * vision_reward
+        if dist < 0.03:
+            total_reward += 10.0
+        info = {"physics_reward": physics_reward, "vision_reward": vision_reward,
+                "total_reward": total_reward, "distance": dist, "vision_info": vision_info}
         return total_reward, info
