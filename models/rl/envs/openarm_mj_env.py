@@ -8,11 +8,11 @@ import os
 class OpenArmMjEnv:
     """OpenArm (left arm) reaching a cup; optional camera observations."""
     def __init__(self, xml_path: str, horizon=300, render=False,
-                 action_scale=0.03, camera=None, camera_size=(256,256), camera_in_info = True, 
+                 action_scale=0.03, camera='scene_left_wrist_cam', camera_size=(256,256), camera_in_info = True, 
                  vision_rewards_weight = 0.4, physics_rewards_weight = 0.6, target_cup = 'cup1'):
         
-        self.model = mujoco.MjModel.from_xml_path(xml_path)
-        self.data  = mujoco.MjData(self.model)
+        self.model = mujoco.MjModel.from_xml_path(xml_path)  ### robot model
+        self.data  = mujoco.MjData(self.model) ### MuJoCo model data 
         self.horizon = horizon
         self.render  = render
         self.action_scale = action_scale
@@ -78,7 +78,7 @@ class OpenArmMjEnv:
 
         # cache ids for sites/joints
         self.sid_left_ee = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "left_ee")
-        self.sid_cup_top = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "cup_top")
+        self.sid_cup_top = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "cup1_top")
         self.jid_cup_free = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "cup_freejoint")
         assert self.sid_left_ee >= 0 and self.sid_cup_top >= 0 and self.jid_cup_free >= 0, \
             "Missing left_ee/cup_top/cup_freejoint (check your XML edits)."

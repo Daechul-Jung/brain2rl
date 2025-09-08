@@ -17,7 +17,7 @@ def make_env(sim, mjcf, steps, render):
 
         return OpenArmMjEnv(
             xml_path=xml,
-            camera='left_wrist_cam',  # Use the wrist-mounted camera
+            camera='scene_left_wrist_cam',  # Use the wrist-mounted camera
             camera_size=(256, 256),
             horizon=steps, 
             render=render,
