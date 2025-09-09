@@ -8,7 +8,7 @@ import os
 class OpenArmMjEnv:
     """OpenArm (left arm) reaching a cup; optional camera observations."""
     def __init__(self, xml_path: str, horizon=300, render=False,
-                 action_scale=0.03, camera='scene_left_wrist_cam', camera_size=(256,256), camera_in_info = True, 
+                 action_scale=0.03, camera='left_wrist_cam', camera_size=(256,256), camera_in_info = True, 
                  vision_rewards_weight = 0.4, physics_rewards_weight = 0.6, target_cup = 'cup1'):
         
         self.model = mujoco.MjModel.from_xml_path(xml_path)  ### robot model
@@ -162,7 +162,7 @@ class OpenArmMjEnv:
 
         qsl = self._cup_qpos_slice()
         x = np.random.uniform(0.30, 0.48)
-        y = np.random.uniform(-0.12, 0.12)
+        y = np.random.uniform(0.08, 0.20)
         self.data.qpos[qsl] = [x, y, 0.06, 1, 0, 0, 0]
 
         # zero velocities; settle
@@ -192,7 +192,16 @@ class OpenArmMjEnv:
         rgb, seg = (None, None)
         if self.renderer is not None and self.camera_in_info:
             rgb, seg = self._get_pixels(with_seg=True)
-
+################################## Added for verifying
+            if self.renderer is not None and (self.t % 50 == 0):
+                cid = self.cam_id
+                cam_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_CAMERA, cid)
+                cam_body = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, self.model.cam_bodyid[cid])
+                pos = self.data.cam_xpos[cid].copy()
+                R   = self.data.cam_xmat[cid].reshape(3,3).copy()
+                print("optical_axis:", -R[:,2]) 
+                print(f"[cam] using={cam_name} on body={cam_body} pos={pos} optical_axis={-R[:,2]}")
+###############################
         # 3) see if the cup is even in view (fast probe)
         if seg is not None and self.cup_geom_ids.size and (self.t % 50 == 0):
             ids = np.unique(seg if seg.ndim == 2 else seg[..., 0])
