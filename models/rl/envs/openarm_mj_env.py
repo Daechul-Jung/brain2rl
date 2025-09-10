@@ -12,26 +12,29 @@ class OpenArmMjEnv:
                  vision_rewards_weight = 0.4, physics_rewards_weight = 0.6, target_cup = 'cup1'):
         
         self.model = mujoco.MjModel.from_xml_path(xml_path)  ### robot model
-        self.data  = mujoco.MjData(self.model) ### MuJoCo model data 
-        self.horizon = horizon
-        self.render  = render
+        self.data = mujoco.MjData(self.model) ### MuJoCo model data 
+        self.horizon = horizon  ### Horizon for each episode 
+        self.render = render
         self.action_scale = action_scale
-        self.t = 0
+        self.t = 0  ### inital time step 
         self.camera_size = camera_size
+        ###### Weights for rewards components #####
         self.vision_weight = vision_rewards_weight
         self.physic_weight = physics_rewards_weight
-        self.target = target_cup
+        self.target = target_cup  ### Target cup to reach
         self.cup_geom_ids = self._geoms_matching(["cup"])
+        #### Setting reward calculator #####
         self.reward_calc = RewardCalculator(
             vision_weight=vision_rewards_weight,
             physics_weight=physics_rewards_weight,
             cup_geom_ids=self.cup_geom_ids,
             camera_size=self.camera_size,
         )
-        
+        ### Show cup geometries ###
         print("Cup geoms:", [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, g)
                             for g in self.cup_geom_ids])
 
+        #### Cup detector 
         self.vision_detector = CupDetector(camera_size=self.camera_size,
                                         cup_geom_ids=self.cup_geom_ids)
 

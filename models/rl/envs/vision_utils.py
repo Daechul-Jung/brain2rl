@@ -21,14 +21,6 @@ class CupDetector:
             'cup1': {  # Brown cup
                 'lower': np.array([10, 50, 50]),
                 'upper': np.array([20, 255, 255])
-            },
-            'cup2': {  # Green cup
-                'lower': np.array([40, 50, 50]),
-                'upper': np.array([80, 255, 255])
-            },
-            'cup3': {  # Blue cup
-                'lower': np.array([100, 50, 50]),
-                'upper': np.array([130, 255, 255])
             }
         }
         
@@ -81,6 +73,7 @@ class CupDetector:
             'cup2': {'lower': np.array([ 35,  30,  20]), 'upper': np.array([85, 255, 255])},  # green
             'cup3': {'lower': np.array([ 95,  30,  20]), 'upper': np.array([135,255, 255])},  # blue
         }
+        
         for name, cr in ranges.items():
             mask = cv2.inRange(hsv, cr['lower'], cr['upper'])
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5,5), np.uint8))
