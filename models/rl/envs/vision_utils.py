@@ -188,9 +188,12 @@ class RewardCalculator:
         dist = float(np.linalg.norm(ee_pos - cup_pos))
         physics_reward = -dist + (0.1 * (0.2 - dist) if dist < 0.2 else 0.0)
         vision_reward, vision_info = self.cup_detector.calculate_vision_reward(image, target_cup, seg=seg)
+        
         total_reward = self.physics_weight * physics_reward + self.vision_weight * vision_reward
         if dist < 0.03:
             total_reward += 10.0
+
         info = {"physics_reward": physics_reward, "vision_reward": vision_reward,
                 "total_reward": total_reward, "distance": dist, "vision_info": vision_info}
+        
         return total_reward, info

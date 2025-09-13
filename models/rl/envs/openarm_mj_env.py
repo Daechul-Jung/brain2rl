@@ -195,16 +195,7 @@ class OpenArmMjEnv:
         rgb, seg = (None, None)
         if self.renderer is not None and self.camera_in_info:
             rgb, seg = self._get_pixels(with_seg=True)
-################################## Added for verifying
-            if self.renderer is not None and (self.t % 50 == 0):
-                cid = self.cam_id
-                cam_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_CAMERA, cid)
-                cam_body = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, self.model.cam_bodyid[cid])
-                pos = self.data.cam_xpos[cid].copy()
-                R   = self.data.cam_xmat[cid].reshape(3,3).copy()
-                print("optical_axis:", -R[:,2]) 
-                print(f"[cam] using={cam_name} on body={cam_body} pos={pos} optical_axis={-R[:,2]}")
-###############################
+
         # 3) see if the cup is even in view (fast probe)
         if seg is not None and self.cup_geom_ids.size and (self.t % 50 == 0):
             ids = np.unique(seg if seg.ndim == 2 else seg[..., 0])
@@ -217,14 +208,14 @@ class OpenArmMjEnv:
             ee_pos=ee, cup_pos=cup, target_cup=self.target, seg=seg
         )
 
-        # 5) detection + optional overlay (debug)
+        # # 5) detection + optional overlay (debug)
         detected = {}
-        if rgb is not None:
-            detected = self.vision_detector.detect_cups(rgb, seg=seg)
-            if (self.t % 100) == 0:
-                os.makedirs("debug", exist_ok=True)
-                overlay = self.vision_detector.visualize_detection(rgb, detected) if detected else rgb
-                imageio.imwrite(os.path.join("debug", f"detect_{self.t:06d}.png"), overlay)
+        # if rgb is not None:
+        #     detected = self.vision_detector.detect_cups(rgb, seg=seg)
+        #     if (self.t % 100) == 0:
+        #         os.makedirs("debug", exist_ok=True)
+        #         overlay = self.vision_detector.visualize_detection(rgb, detected) if detected else rgb
+        #         imageio.imwrite(os.path.join("debug", f"detect_{self.t:06d}.png"), overlay)
 
         # 6) termination
         terminated = dist < 0.03

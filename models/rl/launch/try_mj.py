@@ -70,22 +70,8 @@ if __name__ == "__main__":
     print(f'Observation space: {obs_space.shape} and action space: {act_space.shape}')
     print(f'Vision features: 6 additional features for cup detection')
 
-    ######
-    print("TCP exists:",
-      mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, "openarm_left_hand_tcp") >= 0)
-    ######
     if not isinstance(act_space, gym.spaces.Box):
         raise ValueError("This script only supports continuous action spaces (gym.spaces.Box)")
-
-    #####
-    import mujoco, imageio, numpy as np
-    m = mujoco.MjModel.from_xml_path("/home/jdcjdb/brain2rl/models/rl/envs/openarm_scene_with_cameras.xml")
-    d = mujoco.MjData(m); mujoco.mj_forward(m, d)
-    r = mujoco.Renderer(m, 256, 256)
-    for name in ["front_camera", "side_camera", "left_wrist_cam"]:
-        r.update_scene(d, camera=name)
-        imageio.imwrite(f"debug/snapshot_{name}.png", r.render())
-    ########
 
     state_dim = obs_space.shape[0]
     action_dim = act_space.shape[0]
