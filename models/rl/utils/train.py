@@ -56,7 +56,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
     global_update = 0 
     all_episode_returns = []
 
-    while global_update < 300: # total_updates:
+    while global_update < total_updates: # total_updates:
         transition, observation, critic_observation, infos = agent.collect(env, observation, critic_observation, num_step)
         ep_returns, ep_lengths = _episode_stats_from_rollout(transition, prefer_raw=True)
         print(f"Episode {global_update}/{total_updates}, Reward: {np.sum(ep_returns):.2f}")
@@ -70,6 +70,7 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
             gamma=agent.gamma,
             lmbda=agent.lmbda
         )
+
         data = TensorDict(
             {
                 'observation': transition['observation'],
@@ -101,7 +102,6 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
         ## syncronize old actor
         with torch.no_grad():
             for p,q in zip(agent.actor.parameters(), agent.old_actor.parameters()):
-                # p.data.copy_(q.data)
                 q.data.copy_(p.data)
                  
         if evaluate_func and (global_update % eval_interval == 0):
@@ -117,14 +117,12 @@ def train_reppo(env: gym.Env, agent:RePPOAgent, total_steps = 10000, num_step= 1
                 step=global_update * N_envs * num_step,
                 **{k: (float(val) if torch.is_tensor(val) else val) for k, val in logs.items()},
             )
-        # print("torch.cuda.is_available():", torch.cuda.is_available())
-        # print("actor on:", next(agent.actor.parameters()).device)
-        # print("critic on:", next(agent.critic.parameters()).device)
+
         global_update += 1
 
     return all_episode_returns
 
-###############################################################################################
+#####################################Train PPO#######################################################
 
 
 def train_agent(env, agent, num_episodes, max_steps=1000, render=False):

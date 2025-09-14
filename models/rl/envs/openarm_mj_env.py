@@ -12,10 +12,10 @@ class OpenArmMjEnv:
                  vision_rewards_weight = 0.4, physics_rewards_weight = 0.6, target_cup = 'cup1'):
         
         ### camera="left_wrist_cam"
-        print(xml_path)
         self.model = mujoco.MjModel.from_xml_path(xml_path)  ### robot model
         self.data = mujoco.MjData(self.model) ### MuJoCo model data 
         self.horizon = horizon  ### Horizon for each episode 
+        self.print_component()
         self.render = render
         self.action_scale = action_scale
         self.t = 0  ### inital time step 
@@ -132,6 +132,35 @@ class OpenArmMjEnv:
         #     self.renderer = mujoco.Renderer(self.model, *self.camera_size)
             
     # ------------- helpers -------------
+    def print_component(self):
+        self.geom_id_cup_wall = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "cup_wall")
+        self.geom_id_cup_bottom = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "cup_bottom")
+        self.sid_cup_top    = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "cup_top")
+
+        # finger slide joints (for fallback aperture calc)
+        self.jid_f1 = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "openarm_left_finger_joint1")
+        self.jid_f2 = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "openarm_left_finger_joint2")
+        self.qadr_f1 = self.model.jnt_qposadr[self.jid_f1] if self.jid_f1 >= 0 else -1
+        self.qadr_f2 = self.model.jnt_qposadr[self.jid_f2] if self.jid_f2 >= 0 else -1
+        print(f'data site_pos: \n {self.data.site_xpos}')
+
+        print(f'geom_id_cup_wall: {self.geom_id_cup_wall}') # is it index of data?
+
+    def cup_dimensions(self):
+        # Prefer the wall geom (cylinder)
+        r, h = None, None
+        if self.gid_cup_wall >= 0:
+            size = self.model.geom_size[self.gid_cup_wall]
+            # CYLINDER: [radius, half_length]
+            r = float(size[0])
+            h = float(2.0 * size[1])
+        elif self.gid_cup_bottom >= 0:  # fallback
+            size = self.model.geom_size[self.gid_cup_bottom]
+            r = float(size[0])
+            h = float(2.0 * size[1])
+        return r, h 
+
+
     def _cup_qpos_slice(self):
         jadr = self.model.jnt_qposadr[self.jid_cup_free]
         return slice(jadr, jadr+7)  
@@ -214,18 +243,17 @@ class OpenArmMjEnv:
             mujoco.mj_step(self.model, self.data)
         obs = self._get_obs()
         info = {}
-        # if self.camera_in_info:
-        #     pix = self._get_pixels()
-        #     if pix is not None:
-        #         info["pixels"] = pix
-        #         imageio.imwrite("camera_view.png", pix)
+
         return obs, info
 
     def step(self, action):
+
         # Scaling the action 
         action = np.clip(action, self.action_space.low, self.action_space.high) * self.action_scale
+
         ## put action in model data control part for left_actuators part
         self.data.ctrl[self.left_actuators] = action
+
         # Take MuJoCo step
         mujoco.mj_step(self.model, self.data)
         self.t += 1
@@ -234,23 +262,15 @@ class OpenArmMjEnv:
         dist = float(np.linalg.norm(ee - cup))
         
 
-        physics_reward = -dist
-        # physics_reward += 0.1 * (0.2 - np.clip(dist, 0, 0.2))
-        # print(dist, 0.1 * (0.2 - np.clip(dist, 0, 0.2)))
-
         total_reward = self.calculate_reward(ee, cup)
         terminated = dist < 0.03
         truncated  = self.t >= self.horizon
 
         info = {
             "dist": dist,
-            # "physics_reward": float(vis_info.get("physics_reward", -dist)),
-            # "vision_reward": float(vis_info.get("vision_reward", 0.0)),
             "total_reward": float(total_reward),
-            # "vision_info": vis_info.get("vision_info", {}),
         }
-        # if self.camera_in_info and rgb is not None:
-        #     info["pixels"] = rgb
+
 
         if self.render and self.viewer:
             self.viewer.sync()
