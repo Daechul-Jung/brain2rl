@@ -33,17 +33,19 @@
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"
           contype="1" conaffinity="1"/>
 
-    <!-- cups: start near the floor (reset() will randomize XY and set z=0.06) -->
-    <body name="cup1_top" pos="0.35 0.00 0.06">
-      <geom name="cup1_geom" type="cylinder" size="0.03 0.06"
-            rgba="0.6 0.3 0.1 1" friction="0.8 0.1 0.1" contype="1" conaffinity="1"/>
+
+    <body name="cup" pos="0.35 0.00 0.06">
       <freejoint name="cup_freejoint"/>
-      <site name="cup1_top" pos="0 0 0.06"/>
+      <geom name="cup_wall"   type="cylinder" size="0.03 0.06" rgba="0.6 0.3 0.1 1"
+            friction="0.8 0.1 0.1" contype="1" conaffinity="1"/>
+      <geom name="cup_bottom" type="cylinder" size="0.03 0.004" pos="0 0 -0.056"
+            rgba="0.7 0.5 0.3 1"/>
+      <site name="cup_top" pos="0 0 0.06"/>   
     </body>
 
   </worldbody>
 
   <sensor>
-    <framepos name="cup1_pos" objtype="site" objname="cup1_top"/>
+    <framepos name="cup_pos" objtype="site" objname="cup_top"/>
   </sensor>
 </mujoco>
