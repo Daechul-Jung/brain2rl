@@ -154,7 +154,7 @@ class OpenArmMjEnv:
             # CYLINDER: [radius, half_length]
             r = float(size[0])
             h = float(2.0 * size[1])
-        elif self.gid_cup_bottom >= 0:  # fallback
+        elif self.gid_cup_bottom >= 0: 
             size = self.model.geom_size[self.gid_cup_bottom]
             r = float(size[0])
             h = float(2.0 * size[1])
