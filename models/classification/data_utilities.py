@@ -5,193 +5,121 @@ for the classification pipeline.
 """
 
 import os
+import re
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from torch.utils.data import DataLoader
 from typing import Dict, List, Optional, Tuple, Any
 
 from time_series_dataset import TimeSeriesDataset
 
 
-def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None) -> Tuple[np.ndarray, np.ndarray]:
+def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, group_by:str = 'sequence_id') -> Tuple[np.ndarray, Dict[str, np.ndarray], np.ndarray]:
     """
     Load sensor data from CSV files
     
     Args:
         data_dir: Directory containing data files
         subject_ids: List of subject IDs to load (if None, load all)
+        group_by: Group by sequence_id to make it as time series 
         
     Returns:
         Tuple of (data, labels)
     """
     print(f"Loading sensor data from {data_dir}")
-    
-    all_data = []
-    all_labels = []
-    
-    # If no subject IDs specified, try to find all CSV files
-    if subject_ids is None:
-        csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
-        subject_ids = [f.replace('.csv', '') for f in csv_files]
-    
-    for subject_id in subject_ids:
-        data_file = os.path.join(data_dir, f'{subject_id}.csv')
-        
-        if not os.path.exists(data_file):
-            print(f"Warning: File for subject {subject_id} not found. Skipping...")
-            continue
-        
-        print(f"Loading subject {subject_id}...")
-        
-        try:
-            df = pd.read_csv(data_file)
-            
-            # Extract sensor features (adjust column names as needed)
-            sensor_columns = [col for col in df.columns if any(x in col.lower() for x in ['acc', 'gyro', 'sensor', 'signal'])]
-            
-            if not sensor_columns:
-                # Fallback to common column names
-                sensor_columns = ['acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z']
-            
-            # Check which columns exist
-            available_columns = [col for col in sensor_columns if col in df.columns]
-            
-            if not available_columns:
-                print(f"Warning: No sensor columns found for {subject_id}. Available columns: {list(df.columns)}")
-                continue
-            
-            X = df[available_columns].values
-            y = df['label'].values if 'label' in df.columns else np.zeros(len(X)) #### Should be replaced into action indicator 
-            
-            all_data.append(X)
-            all_labels.append(y)
-            
-        except Exception as e:
-            print(f"Error loading {subject_id}: {str(e)}")
-            continue
-    
-    if not all_data:
-        raise ValueError("No data could be loaded from the specified directory")
-    
-    # Combine data from all subjects
-    X = np.concatenate(all_data, axis=0)
-    y = np.concatenate(all_labels, axis=0)
-    
-    print(f"Loaded data shape: {X.shape}, labels shape: {y.shape}")
-    return X, y
+    df = pd.read_csv(data_dir)
+    subject_ids = np.unique(df['subject'].dropna().astype(str).unique())
+    if 'sequence_id' not in df.columns:
+        if 'row_id' in df.columns:
+            df['sequence_id'] = df['row_id'].astype(str).str.split('_').str[:2].str.join('_')
+        elif 'sequence_id' in df.columns:
+            df['sequence_id'] = df['sequence'].astype(str)
 
+    sort_cols = ['subject', 'sequence_id']
+    if 'sequence_counter' in df.columns:
+        sort_cols.append('sequence_counter')
 
-def preprocess_data(X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray, StandardScaler, LabelEncoder]:
-    """
-    Preprocess the sensor data
-    
-    Args:
-        X: Raw sensor data
-        y: Raw labels
-        
-    Returns:
-        Tuple of (preprocessed_data, encoded_labels, scaler, label_encoder)
-    """
-    print("Preprocessing data...")
-    
-    # Scale sensor data
+    df = df.sort_values(sort_cols, kind='mergesort').reset_index(drop=True)
+    prefixed = ("acc_", "rot_", "thm_", "tof_")
+    sensor_cols = [c for c in df.columns if c.startswith(prefixed)]
+
+    if not sensor_cols:
+        fallback = ["acc_x","acc_y","acc_z","rot_w","rot_x","rot_y","rot_z"]
+        sensor_cols = [c for c in fallback if c in df.columns]
+    if not sensor_cols:
+        raise ValueError("No sensor columns found. Check your column names and prefixes.")
+
+    # Verify label columns
+    if 'behavior' not in df.columns or 'gesture' not in df.columns:
+        raise ValueError("Expected 'behavior' and 'gesture' columns in the CSV.")
+
+    df[sensor_cols] = df[sensor_cols].replace(-1, np.nan)
+
+    df[sensor_cols] = (
+        df.groupby('sequence_id', sort=False)[sensor_cols]
+        .apply(lambda g: g.ffill().bfill())
+        .reset_index(level=0, drop=True)
+    )
+
+    for c in sensor_cols:
+        if df[c].isna().any():
+            df[c] = df[c].fillna(df[c].median())
+
+    X = df[sensor_cols].astype(np.float32).values
+    y = {
+        'behavior': df['behavior'].astype(str).values,
+        'gesture': df['gesture'].astype(str).values
+    }
+
+    groups = df[group_by].astype(str).values if group_by in df.columns else np.zeros(len(df), dtype=str)
+
+    print(f"Loaded X: {X.shape} (N,C). "
+          f"Behaviors: {len(np.unique(y['behavior']))}, Gestures: {len(np.unique(y['gesture']))}. "
+          f"Group key: '{group_by}'.")
+
+    return X, y, groups, df
+
+def preprocess_multilabel(X: np.ndarray, y_str: Dict[str, np.ndarray]) -> Tuple[np.ndarray, Dict[str, np.ndarray], StandardScaler, Dict[str, LabelEncoder]]:
+    print('Preprocessing (scaling + encoding two targets)')
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
-    
-    # Encode labels
-    label_encoder = LabelEncoder()
-    y_encoded = label_encoder.fit_transform(y)
-    
-    print(f"Data preprocessed. Unique labels: {np.unique(y_encoded)}")
-    return X_scaled, y_encoded, scaler, label_encoder
 
+    encoders = {}
+    y_encoders = {}
+    for key in ['behavior', 'gesture']:
+        le = LabelEncoder()
+        y_encoders[key] = le.fit_transform(y_str[key])
+        encoders[key] = le
+        print(f'{key}: {len(le.classes_)} classes')
+    return X_scaled, y_encoders, scaler, encoders
 
-def create_dataloaders(X: np.ndarray, y: np.ndarray, window_size: int = 100, 
-                      batch_size: int = 32, overlap: float = 0.5) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    """
-    Create train/validation/test dataloaders
-    
-    Args:
-        X: Preprocessed data
-        y: Encoded labels
-        window_size: Size of sliding window
-        batch_size: Batch size for training
-        overlap: Overlap between consecutive windows
-        
-    Returns:
-        Tuple of (train_loader, val_loader, test_loader)
-    """
-    # Split data
-    X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.2, random_state=42, stratify=y_temp)
-    
-    # Create datasets
-    train_dataset = TimeSeriesDataset(X_train, y_train, window_size=window_size, overlap=overlap)
-    val_dataset = TimeSeriesDataset(X_val, y_val, window_size=window_size, overlap=overlap)
-    test_dataset = TimeSeriesDataset(X_test, y_test, window_size=window_size, overlap=overlap)
-    
-    # Create dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    
-    print(f"Created dataloaders - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
-    return train_loader, val_loader, test_loader
+def create_train_val_loaders(
+    X_train, y_train_enc, groups_train,
+    window_size=256, batch_size=64, overlap=0.5, task='both'
+):
+    gss = GroupShuffleSplit(test_size=0.2, random_state=42)
+    tr_idx, val_idx = next(gss.split(X_train, y_train_enc['behavior'], groups=groups_train))
 
+    tr = (X_train[tr_idx], {k: y_train_enc[k][tr_idx] for k in y_train_enc})
+    va = (X_train[val_idx], {k: y_train_enc[k][val_idx] for k in y_train_enc})
 
-def validate_data_format(data_dir: str) -> bool:
-    """
-    Validate that the data directory contains properly formatted sensor data
-    
-    Args:
-        data_dir: Directory containing sensor data
-        
-    Returns:
-        True if data format is valid, False otherwise
-    """
-    if not os.path.exists(data_dir):
-        print(f"Error: Data directory '{data_dir}' does not exist")
-        return False
-    
-    # Check for CSV files
-    csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
-    if not csv_files:
-        print(f"Error: No CSV files found in '{data_dir}'")
-        print("Expected format: CSV files with sensor data columns and 'label' column")
-        return False
-    
-    print(f"Found {len(csv_files)} CSV files in data directory")
-    for f in csv_files[:5]:  # Show first 5 files
-        print(f"  - {f}")
-    if len(csv_files) > 5:
-        print(f"  ... and {len(csv_files) - 5} more files")
-    
-    return True
+    ds_tr = TimeSeriesDataset(*tr, window_size=window_size, overlap=overlap, task=task)
+    ds_va = TimeSeriesDataset(*va, window_size=window_size, overlap=overlap, task=task)
 
+    return (
+        DataLoader(ds_tr, batch_size=batch_size, shuffle=True),
+        DataLoader(ds_va, batch_size=batch_size, shuffle=False),
+    )
 
-def get_data_info(X: np.ndarray, y: np.ndarray) -> Dict[str, Any]:
-    """
-    Get information about the dataset
-    
-    Args:
-        X: Sensor data
-        y: Labels
-        
-    Returns:
-        Dictionary with dataset information
-    """
-    return {
-        'original_shape': X.shape,
-        'n_samples': X.shape[0],
-        'n_channels': X.shape[1],
-        'n_classes': len(np.unique(y)),
-        'class_distribution': np.bincount(y),
-        'unique_labels': np.unique(y),
-        'data_type': str(X.dtype),
-        'label_type': str(y.dtype)
-    }
+def create_test_loader(
+    X_test, y_test_enc,
+    window_size=256, batch_size=64, overlap=0.5, task='both'
+):
+    ds_te = TimeSeriesDataset(X_test, y_test_enc, window_size=window_size, overlap=overlap, task=task)
+    return DataLoader(ds_te, batch_size=batch_size, shuffle=False)
+
 
 
 def save_preprocessing_info(scaler: StandardScaler, label_encoder: LabelEncoder, save_path: str):

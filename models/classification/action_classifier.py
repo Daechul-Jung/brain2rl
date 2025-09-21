@@ -11,12 +11,66 @@ import torch.nn as nn
 from typing import Tuple
 
 
+# action_classifier.py
 class ActionClassifier(nn.Module):
+    def __init__(self, n_channels: int, n_times: int,
+                 n_behavior_classes: int, n_gesture_classes: int,
+                 dropout_rate: float = 0.3, task: str = 'behavior'):
+        super().__init__()
+        self.task = task
+
+        self.trunk = nn.Sequential(
+            nn.Conv1d(n_channels, 32, kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm1d(32), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
+            nn.Conv1d(32, 64, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm1d(64), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
+            nn.Conv1d(64,128, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm1d(128), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
+        )
+
+        # compute pooled length roughly; we’ll adaptively pool anyway
+        self.time_after_pool = max(1, n_times // 8)
+
+        self.proj = nn.Linear(128, 128)  # token projection per time step
+        # heads are fed a time-aggregated token (mean over time)
+        self.behavior_head = nn.Linear(128, n_behavior_classes)
+        self.gesture_head  = nn.Linear(128, n_gesture_classes)
+
+    def forward(self, x):
+        # x: (B, C, T)
+        h = self.trunk(x)                     # (B, 128, T')
+        if h.size(-1) != self.time_after_pool:
+            h = torch.nn.functional.adaptive_avg_pool1d(h, self.time_after_pool)
+
+        # tokens = projected per-timestep features
+        tokens = self.proj(h.transpose(1,2))  # (B, T', 128)
+
+        # global representation for classification
+        glob = tokens.mean(dim=1)             # (B, 128)
+
+        out = {}
+        if self.task in ('behavior','both'):
+            out['behavior_logits'] = self.behavior_head(glob)
+        if self.task in ('gesture','both'):
+            out['gesture_logits']  = self.gesture_head(glob)
+
+        return out
+
+    @torch.no_grad()
+    def tokens(self, x):
+        """Return per-window 'tokens' (B, T', 128) for downstream usage."""
+        h = self.trunk(x)
+        h = torch.nn.functional.adaptive_avg_pool1d(h, self.time_after_pool)
+        return self.proj(h.transpose(1,2))
+
+
+
+class ActionClassifierFirst(nn.Module):
     """
     CNN model for action classification from time series sensor data
     """
     def __init__(self, n_channels: int, n_times: int, n_classes: int, dropout_rate: float = 0.3):
-        super(ActionClassifier, self).__init__()
+        super(ActionClassifierFirst, self).__init__()
         
         # Temporal convolution layers
         self.temporal_conv = nn.Sequential(
@@ -74,16 +128,7 @@ class ActionClassifier(nn.Module):
         
         x = self.fc(x)
         return x
-    
-    def get_model_info(self):
-        """Get information about the model architecture"""
-        return {
-            'n_channels': self.temporal_conv[0].in_channels,
-            'n_times': self.time_after_pool * 8,  # Approximate original time dimension
-            'n_classes': self.fc[-1].out_features,
-            'dropout_rate': self.temporal_conv[-1].p,
-            'total_parameters': sum(p.numel() for p in self.parameters())
-        }
+
     
     def get_feature_maps(self, x):
         """Get intermediate feature maps for analysis"""

@@ -9,14 +9,14 @@ with sliding window support for action classification.
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from typing import Optional
+from typing import Optional, Dict
 
 
 class TimeSeriesDataset(Dataset):
     """Dataset for time series sensor data with windowing support"""
     
-    def __init__(self, data: np.ndarray, labels: np.ndarray, window_size: int = 100, 
-                 overlap: float = 0.5, transform=None):
+    def __init__(self, data: np.ndarray, labels: Dict[str, np.ndarray], 
+                 window_size: int = 30, overlap: float= 0.5, task: str= 'both'):
         """
         Args:
             data: Sensor data with shape (n_samples, n_channels)
@@ -28,43 +28,38 @@ class TimeSeriesDataset(Dataset):
         self.data = data
         self.labels = labels
         self.window_size = window_size
+        self.step_size = max(1, int(window_size * (1 - overlap)))
         self.overlap = overlap
-        self.transform = transform
+        self.task = task
         
-        # Calculate step size and number of windows
-        self.step_size = int(window_size * (1 - overlap))
-        self.n_windows = max(1, (len(data) - window_size) // self.step_size + 1)
-        
-        # Create window indices
         self.window_indices = []
-        for i in range(self.n_windows):
-            start_idx = i * self.step_size
-            end_idx = start_idx + window_size
-            if end_idx <= len(data):
-                self.window_indices.append((start_idx, end_idx))
-        
-        self.n_windows = len(self.window_indices)
+        for start in range(0, len(data) - window_size + 1, self.step_size):
+            self.window_indices.append((start, start + window_size))
+
         
     def __len__(self):
-        return self.n_windows
+        return len(self.window_indices)
     
     def __getitem__(self, idx):
         start_idx, end_idx = self.window_indices[idx]
         
-        window_data = self.data[start_idx:end_idx]
-        window_labels = self.labels[start_idx:end_idx]
+        x_window = self.data[start_idx: end_idx]
+        x_windowT = x_window.T
+
+        out = {}
+        for key in ['behavior', 'gesture']:
+            y_window = self.labels[key][start_idx: end_idx]
+            values, counts = np.unique(y_window, return_counts=True)
+            out[key] = int(values[np.argmax(counts)])
         
-        # Use majority voting for window label
-        unique_labels, counts = np.unique(window_labels, return_counts=True)
-        window_label = unique_labels[np.argmax(counts)]
-        
-        # Transpose to (channels, time) format for CNN
-        window_data = window_data.T
-        
-        if self.transform:
-            window_data = self.transform(window_data)
-        
-        return torch.FloatTensor(window_data), torch.LongTensor([window_label])
+        if self.task == 'behavior':
+            y = out['behavior']
+        elif self.task == 'gesture':
+            y = out['gesture']
+        else:
+            y = (out['behavior'], out['gesture'])
+
+        return torch.from_numpy(x_windowT).float(), y
     
     def get_data_info(self):
         """Get information about the dataset"""
