@@ -4,7 +4,7 @@ This module provides utilities for loading, preprocessing, and managing sensor d
 for the classification pipeline.
 """
 
-import os
+import os, sys
 import re
 import numpy as np
 import pandas as pd
@@ -13,7 +13,8 @@ from sklearn.model_selection import train_test_split, GroupShuffleSplit
 from torch.utils.data import DataLoader
 from typing import Dict, List, Optional, Tuple, Any
 
-from time_series_dataset import TimeSeriesDataset
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from models.classification.time_series_dataset import TimeSeriesDataset
 
 
 def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, group_by:str = 'sequence_id') -> Tuple[np.ndarray, Dict[str, np.ndarray], np.ndarray]:
@@ -31,6 +32,7 @@ def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, gro
     print(f"Loading sensor data from {data_dir}")
     df = pd.read_csv(data_dir)
     subject_ids = np.unique(df['subject'].dropna().astype(str).unique())
+    print(len(subject_ids))
     if 'sequence_id' not in df.columns:
         if 'row_id' in df.columns:
             df['sequence_id'] = df['row_id'].astype(str).str.split('_').str[:2].str.join('_')
@@ -51,7 +53,6 @@ def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, gro
     if not sensor_cols:
         raise ValueError("No sensor columns found. Check your column names and prefixes.")
 
-    # Verify label columns
     if 'behavior' not in df.columns or 'gesture' not in df.columns:
         raise ValueError("Expected 'behavior' and 'gesture' columns in the CSV.")
 
@@ -75,7 +76,7 @@ def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, gro
 
     groups = df[group_by].astype(str).values if group_by in df.columns else np.zeros(len(df), dtype=str)
 
-    print(f"Loaded X: {X.shape} (N,C). "
+    print(f"Loaded X: {X.shape} (Number of subjects, number of sensors). "
           f"Behaviors: {len(np.unique(y['behavior']))}, Gestures: {len(np.unique(y['gesture']))}. "
           f"Group key: '{group_by}'.")
 
@@ -97,8 +98,7 @@ def preprocess_multilabel(X: np.ndarray, y_str: Dict[str, np.ndarray]) -> Tuple[
 
 def create_train_val_loaders(
     X_train, y_train_enc, groups_train,
-    window_size=256, batch_size=64, overlap=0.5, task='both'
-):
+    window_size=256, batch_size=64, overlap=0.5, task='both'):
     gss = GroupShuffleSplit(test_size=0.2, random_state=42)
     tr_idx, val_idx = next(gss.split(X_train, y_train_enc['behavior'], groups=groups_train))
 
@@ -113,10 +113,7 @@ def create_train_val_loaders(
         DataLoader(ds_va, batch_size=batch_size, shuffle=False),
     )
 
-def create_test_loader(
-    X_test, y_test_enc,
-    window_size=256, batch_size=64, overlap=0.5, task='both'
-):
+def create_test_loader(X_test, y_test_enc, window_size=256, batch_size=64, overlap=0.5, task='both'):
     ds_te = TimeSeriesDataset(X_test, y_test_enc, window_size=window_size, overlap=overlap, task=task)
     return DataLoader(ds_te, batch_size=batch_size, shuffle=False)
 

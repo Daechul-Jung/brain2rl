@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Classification-Only Pipeline Runner
 
@@ -18,8 +17,7 @@ import logging
 import json
 from pathlib import Path
 
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import classification components
 from models.classification.time_series_dataset import TimeSeriesDataset
@@ -45,7 +43,7 @@ class ClassificationOnlyPipeline:
 
         self.criterion = nn.CrossEntropyLoss()
         
-        self.logger.info(f"Classification-Only Pipeline initialized on device: {self.device}")
+        self.logger.info(f"Classification Pipeline initialized on device: {self.device}")
     
     def _setup_logger(self) -> logging.Logger:
         logger = logging.getLogger('ClassificationOnlyPipeline')
@@ -82,12 +80,14 @@ class ClassificationOnlyPipeline:
     
     
     def train(self, train_loader, val_loader, num_behave, num_gesture):
-        n_channels = train_loader.dataset.data.shape[0]
-        n_times = self.config['window_size']
         task = self.config.get('task', 'both')
 
+        x_batch, y_batch = next(iter(train_loader))  ### (Batch size, Channel(number of sensors used), window_size)
+        n_channels = x_batch.shape[1]
+        n_times = x_batch.shape[2]
+
         self.model = ActionClassifier(n_channels=n_channels, n_times=n_times,
-                                      n_behavior_classes=num_behave, n_gesture_classes=num_gesture, task=task)
+                                      n_behavior_classes=num_behave, n_gesture_classes=num_gesture, task=task, device=self.device)
         
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.config['classifier_lr'])
 
@@ -107,7 +107,7 @@ class ClassificationOnlyPipeline:
 
             return (pred == y).float().mean().item() * 100
         
-        for epoch in range(self.config['classifier_epoch']):
+        for epoch in range(self.config['classifier_epochs']):
             self.model.train()
             train_loss, train_acc, n_batch = 0.0, 0.0, 0
             for x_batch, y_batch in train_loader:
@@ -198,11 +198,11 @@ class ClassificationOnlyPipeline:
         self.logger.info(f"Saved predictions + tokens to {dump_dir}")
 
         return result
+    
     def print_subject_predictions(self, test_csv: str, subject_id: str):
         """
         Load test.csv subset for a subject, run the classifier, and print per-window predicted actions.
         """
-        
         X_raw, y_raw, groups, df = load_sensor_data(test_csv, subjects=[subject_id], group_by="sequence_id")
         # transform with train scaler/encoders
         X = self.scaler.transform(X_raw)
@@ -227,8 +227,6 @@ class ClassificationOnlyPipeline:
             print(f"[win {i:04d}] behavior={btxt}  gesture={gtxt}")
 
     
-
-    
     def run(self, train_csv, test_csv, output_dir='output'):
         X_train_raw, y_train_str, group_train, df = load_sensor_data(train_csv, group_by='sequence_id')
         X_train, y_train, self.scaler, self.encoders = preprocess_multilabel(X_train_raw, y_train_str)
@@ -239,10 +237,26 @@ class ClassificationOnlyPipeline:
             batch_size=self.config['batch_size'],
             overlap=0.5, task= self.config.get('task', 'both')
             )
+        
         num_behave = len(self.encoders['behavior'].classes_)
         num_gesture = len(self.encoders['gesture'].classes_)
         print(f'num behavior: {num_behave} and num gesture: {num_gesture}')
         history = self.train(train_loader, val_loader, num_behave, num_gesture)
+
+        save_preprocessing_info(self.scaler, self.encoders, os.path.join(output_dir, 'classifier', 'preproc.pkl'))
+
+        x_test_raw, y_test_str, group_test, _ = load_sensor_data(test_csv, group_by='sequence_id')
+        X_test = self.scaler.transform(x_test_raw)
+        y_test = {k : self.encoders[k].transform(y_test_str[k]) for k in ['behavior', 'gesture']}
+
+        test_loader = create_test_loader(X_test=X_test, y_test_enc=y_test,
+                                         window_size=self.config['window_size'],
+                                         batch_size=self.config['batch_size'],
+                                         overlap=0.5, task = self.config.get('task', 'both'))
+        
+        preds = self.evaluate_and_dump(test_loader=test_loader, encoders=self.encoders, dump_dir=os.path.join(output_dir,'classifier'))
+
+        return {'history': history, 'preds': preds}
 
     def plot_training_history(self, history: Dict[str, List[float]], save_path: str):
         """Plot training history"""
@@ -280,9 +294,9 @@ def create_classification_config() -> Dict[str, Any]:
         'window_size': 30,
         'batch_size': 32,
         'classifier_lr': 1e-3,
-        'classifier_epochs': 50,
-        'classifier_dropout': 0.3,
-        'task': 'both',  # 'behavior' | 'gesture' | 'both'
+        'classifier_epochs': 500,
+        'classifier_dropout': 0.2,
+        'task': 'both', 
     }
 def main():
     import argparse

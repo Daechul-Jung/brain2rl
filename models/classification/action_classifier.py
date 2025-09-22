@@ -15,10 +15,10 @@ from typing import Tuple
 class ActionClassifier(nn.Module):
     def __init__(self, n_channels: int, n_times: int,
                  n_behavior_classes: int, n_gesture_classes: int,
-                 dropout_rate: float = 0.3, task: str = 'behavior'):
+                 dropout_rate: float = 0.3, task: str = 'behavior', device = 'cuda'):
         super().__init__()
         self.task = task
-
+        self.device = device
         self.trunk = nn.Sequential(
             nn.Conv1d(n_channels, 32, kernel_size=7, stride=2, padding=3),
             nn.BatchNorm1d(32), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
@@ -26,15 +26,15 @@ class ActionClassifier(nn.Module):
             nn.BatchNorm1d(64), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
             nn.Conv1d(64,128, kernel_size=5, stride=1, padding=2),
             nn.BatchNorm1d(128), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
-        )
+        ).to(self.device)
 
         # compute pooled length roughly; we’ll adaptively pool anyway
         self.time_after_pool = max(1, n_times // 8)
 
-        self.proj = nn.Linear(128, 128)  # token projection per time step
+        self.proj = nn.Linear(128, 128).to(self.device)  # token projection per time step
         # heads are fed a time-aggregated token (mean over time)
-        self.behavior_head = nn.Linear(128, n_behavior_classes)
-        self.gesture_head  = nn.Linear(128, n_gesture_classes)
+        self.behavior_head = nn.Linear(128, n_behavior_classes).to(self.device)
+        self.gesture_head  = nn.Linear(128, n_gesture_classes).to(self.device)
 
     def forward(self, x):
         # x: (B, C, T)
