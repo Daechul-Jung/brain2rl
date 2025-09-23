@@ -291,11 +291,11 @@ class ClassificationOnlyPipeline:
 
 def create_classification_config() -> Dict[str, Any]:
     return {
-        'window_size': 30,
-        'batch_size': 32,
+        'window_size': 100,
+        'batch_size': 128,
         'classifier_lr': 1e-3,
         'classifier_epochs': 500,
-        'classifier_dropout': 0.2,
+        'classifier_dropout': 0.1,
         'task': 'both', 
     }
 def main():

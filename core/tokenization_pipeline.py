@@ -25,567 +25,322 @@ import math
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from models.tokenization.brain_tokenizer_transformer import BrainTokenizer
+from models.tokenization.transformer import *
 
-
-class MultiHeadAttention(nn.Module):
-    """Multi-head attention mechanism for Q/K/V matrix generation"""
-    
-    def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1):
-        super().__init__()
-        self.d_model = d_model
-        self.n_heads = n_heads
-        self.head_dim = d_model // n_heads
-        
-        assert self.head_dim * n_heads == d_model, "d_model must be divisible by n_heads"
-        
-        self.W_q = nn.Linear(d_model, d_model)
-        self.W_k = nn.Linear(d_model, d_model)
-        self.W_v = nn.Linear(d_model, d_model)
-        self.W_o = nn.Linear(d_model, d_model)
-        
-        self.dropout = nn.Dropout(dropout)
-        self.scale = math.sqrt(self.head_dim)
-        
-    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, 
-                mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        batch_size, seq_len, _ = query.size()
-        
-        # Linear transformations
-        Q = self.W_q(query)  # (batch_size, seq_len, d_model)
-        K = self.W_k(key)    # (batch_size, seq_len, d_model)
-        V = self.W_v(value)  # (batch_size, seq_len, d_model)
-        
-        # Reshape for multi-head attention
-        Q = Q.view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)  # (batch_size, n_heads, seq_len, head_dim)
-        K = K.view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)  # (batch_size, n_heads, seq_len, head_dim)
-        V = V.view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)  # (batch_size, n_heads, seq_len, head_dim)
-        
-        # Scaled dot-product attention
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / self.scale  # (batch_size, n_heads, seq_len, seq_len)
-        
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
-        
-        attention_weights = F.softmax(scores, dim=-1)  # (batch_size, n_heads, seq_len, seq_len)
-        attention_weights = self.dropout(attention_weights)
-        
-        # Apply attention to values
-        context = torch.matmul(attention_weights, V)  # (batch_size, n_heads, seq_len, head_dim)
-        
-        # Reshape and combine heads
-        context = context.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)  # (batch_size, seq_len, d_model)
-        
-        # Final linear transformation
-        output = self.W_o(context)  # (batch_size, seq_len, d_model)
-        
-        # Return output and attention components
-        attention_info = {
-            'query': Q,
-            'key': K,
-            'value': V,
-            'attention_weights': attention_weights,
-            'scores': scores
-        }
-        
-        return output, attention_info
-
-
-class TokenizationDataset(Dataset):
-    """Dataset for tokenization pipeline"""
-    
-    def __init__(self, classified_data: np.ndarray, action_labels: np.ndarray, 
-                 sequence_length: int = 100, stride: int = 50):
-        self.classified_data = classified_data
-        self.action_labels = action_labels
-        self.sequence_length = sequence_length
-        self.stride = stride
-        
-        # Calculate number of sequences
-        self.n_sequences = (len(classified_data) - sequence_length) // stride + 1
-        
-    def __len__(self):
-        return self.n_sequences
-    
-    def __getitem__(self, idx):
-        start_idx = idx * self.stride
-        end_idx = start_idx + self.sequence_length
-        
-        sequence_data = self.classified_data[start_idx:end_idx]
-        sequence_labels = self.action_labels[start_idx:end_idx]
-        
-        return torch.FloatTensor(sequence_data), torch.LongTensor(sequence_labels)
 
 
 class TokenizationPipeline:
     """
-    Pipeline for tokenizing classified sensor data with Q/K/V matrices
+    Consume classifier tokens, contextualizes via transformer, emit Q/K/V + RL packs
     """
-    
+
     def __init__(self, model_config: Dict[str, Any]):
-        """
-        Initialize the tokenization pipeline
-        
-        Args:
-            model_config: Configuration for the tokenization model
-        """
-        self.model_config = model_config
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # Initialize logger
+        self.cfg = model_config
+        self.device = torch.device('cude' if torch.cuda.is_available() else 'cpu')
         self.logger = logging.getLogger('Brain2RL.Tokenization')
-        
-        # Model components
-        self.tokenizer_model = None
-        self.attention_model = None
+        if not self.logger.handlers:
+            h = logging.StreamHandler()
+            h.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            self.logger.addHandler(h)
+        self.logger.setLevel(logging.INFO)
+
+        self.tokenizer = None 
+        self.attn = None 
         self.optimizer = None
-        self.criterion = None
-        
-        # Training state
-        self.is_trained = False
-        self.training_history = []
-        
-        self.logger.info("Tokenization pipeline initialized")
-    
-    def initialize_models(self, input_dim: int, n_classes: int):
-        """
-        Initialize the tokenization models
-        
-        Args:
-            input_dim: Input dimension (number of features)
-            n_classes: Number of action classes
-        """
-        # Initialize tokenizer
-        self.tokenizer_model = BrainTokenizer(
-            input_channels=input_dim,
-            input_length=self.model_config['max_sequence_length'],
-            n_tokens=self.model_config['n_tokens'],
-            embedding_dim=self.model_config['embedding_dim'],
-            nhead=self.model_config['nhead'],
-            num_encoder_layers=self.model_config['num_encoder_layers'],
-            dropout=self.model_config['dropout']
-        ).to(self.device)
-        
-        # Initialize attention model for Q/K/V generation
-        self.attention_model = MultiHeadAttention(
-            d_model=self.model_config['embedding_dim'],
-            n_heads=self.model_config['nhead'],
-            dropout=self.model_config['dropout']
-        ).to(self.device)
-        
-        # Optimizer and criterion
-        self.optimizer = torch.optim.Adam(
-            list(self.tokenizer_model.parameters()) + list(self.attention_model.parameters()),
-            lr=self.model_config.get('learning_rate', 0.001)
-        )
-        
         self.criterion = nn.CrossEntropyLoss()
-        
-        self.logger.info(f"Models initialized with input dim {input_dim}, embedding dim {self.model_config['embedding_dim']}")
-    
-    def prepare_data(self, classified_data: np.ndarray, action_labels: np.ndarray) -> Tuple[DataLoader, DataLoader]:
-        """
-        Prepare data for tokenization training
-        
-        Args:
-            classified_data: Classified sensor data
-            action_labels: Action labels
-            
-        Returns:
-            Tuple of (train_loader, val_loader)
-        """
-        # Split data into train/validation
-        split_idx = int(0.8 * len(classified_data))
-        
-        train_data = classified_data[:split_idx]
-        train_labels = action_labels[:split_idx]
-        
-        val_data = classified_data[split_idx:]
-        val_labels = action_labels[split_idx:]
-        
-        # Create datasets
-        train_dataset = TokenizationDataset(
-            train_data, train_labels,
-            sequence_length=self.model_config['max_sequence_length'],
-            stride=self.model_config['max_sequence_length'] // 2
+
+        self.is_trained = False
+        self.history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+
+    def initialize_models(self, input_channels: int, input_length: int):
+        self.tokenizer = BrainTokenizer(
+            input_channels=input_channels,
+            input_length=input_length,
+            n_tokens=self.cfg['n_tokens'],
+            embedding_dim=self.cfg['embedding_dim'],
+            nhead=self.cfg['nhead'],
+            num_encoder_layers=self.cfg['num_encoder_layers'],
+            dropout=self.cfg['dropout'],
+            use_conv_frontend=False
+        ).to(self.device)
+
+        self.attn = MultiHeadAttention(
+            d_model=self.cfg['embedding_dim'],
+            n_heads=self.cfg['nhead'],
+            dropout = self.cfg['dropout']
+        ).to(self.device)
+
+        self.optimizer = torch.optim.Adam(
+            list(self.tokenizer.parameters()) + list(self.attn.parameters()),
+            lr = self.cfg.get('learning_rate', 1e-3)
         )
-        
-        val_dataset = TokenizationDataset(
-            val_data, val_labels,
-            sequence_length=self.model_config['max_sequence_length'],
-            stride=self.model_config['max_sequence_length'] // 2
-        )
-        
-        # Create data loaders
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=self.model_config.get('batch_size', 32),
-            shuffle=True
-        )
-        
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=self.model_config.get('batch_size', 32),
-            shuffle=False
-        )
-        
-        self.logger.info(f"Data prepared - Train: {len(train_dataset)}, Val: {len(val_dataset)}")
-        return train_loader, val_loader
-    
-    def train_tokenizer(self, classified_data: np.ndarray, action_labels: np.ndarray, 
-                       epochs: int = 100) -> Dict[str, List[float]]:
+
+        self.logger.info(f"Initialized tokenizer (E={self.cfg['embedding_dim']}) with conv_frontend=False")
+
+
+    def _spilt_train_val(self, dataset: Dataset, ratio:float = 0.8):
+        n = len(dataset)
+        n_train = int(n * ratio) 
+        idx = np.arange(n); np.random.seed(42); np.random.shuffle(idx)
+
+        train_idx, val_idx = idx[:n_train], idx[n_train:]
+
+        tr = torch.utils.data.Subset(dataset, train_idx)
+        va = torch.utils.data.Subset(dataset, val_idx)
+        dl_tr = DataLoader(tr, batch_size=self.cfg.get('batch_size', 16), shuffle=True)
+        dl_va = DataLoader(va, batch_size=self.cfg.get('batch_size', 16), shuffle=False)
+        return dl_tr, dl_va   
+
+    def _train_on_classifier_tokens(self, token_wins: np.ndarray, actions: np.ndarray, epochs:int = 500):
         """
-        Train the tokenization model
-        
-        Args:
-            classified_data: Classified sensor data
-            action_labels: Action labels
-            epochs: Number of training epochs
-            
-        Returns:
-            Training history
+        tokens_win: (N_windows, T', 128) from classifier stage
+        actions:    (N_windows,) chosen labels 
         """
-        # Initialize models if not done
-        if self.tokenizer_model is None:
-            input_dim = classified_data.shape[1] if len(classified_data.shape) > 1 else 1
-            n_classes = len(np.unique(action_labels))
-            self.initialize_models(input_dim, n_classes)
+
+
+        dataset = TokensEpisodeDataset(
+            tokens_win=token_wins, actions=actions,
+            windows_per_episode=self.cfg.get('windows_per_episode', 8),
+            stride_window=self.cfg.get('stride_windows', 8)
+        )
+
+        if len(dataset) == 0:
+            raise ValueError("Too few windows to form episodes. Lower windows_per_episode or provide more data.")
         
-        # Prepare data
-        train_loader, val_loader = self.prepare_data(classified_data, action_labels)
-        
-        # Training loop
-        history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
-        
-        for epoch in range(epochs):
-            # Training phase
-            self.tokenizer_model.train()
-            self.attention_model.train()
-            
-            train_loss = 0.0
-            train_correct = 0
-            train_total = 0
-            
-            for batch_data, batch_labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
-                batch_data = batch_data.to(self.device)
-                batch_labels = batch_labels.to(self.device)
-                
-                # Reshape data for tokenizer (batch_size, channels, sequence_length)
-                if len(batch_data.shape) == 3:
-                    batch_data = batch_data.transpose(1, 2)
-                else:
-                    batch_data = batch_data.unsqueeze(1)
-                
+        x_batch, y_batch = dataset[0]
+        C, T = x_batch.shape
+        self.initialize_models(input_channels=C, input_length=T)
+        train_data, val_data = self._spilt_train_val(dataset, ratio=0.8)
+
+        for ep in range(epochs):
+            self.tokenizer.train()
+            self.attn.train()
+            train_loss = train_acc = num_batch = 0
+
+            for x_batch, y_batch in tqdm(train_data, desc=f"Tok Epoch {ep+1}/{epochs}"):
+                x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
+
                 self.optimizer.zero_grad()
-                
-                # Forward pass through tokenizer
-                tokens = self.tokenizer_model(batch_data)  # (batch_size, seq_len, n_tokens)
-                
-                # Generate Q/K/V matrices using attention
-                batch_size, seq_len, n_tokens = tokens.shape
-                
-                # Use tokens as input to attention mechanism
-                attention_output, attention_info = self.attention_model(tokens, tokens, tokens)
-                
-                # Token prediction task (predict next token)
-                # Shift tokens for next token prediction
-                input_tokens = tokens[:, :-1, :]  # (batch_size, seq_len-1, n_tokens)
-                target_tokens = tokens[:, 1:, :].argmax(dim=-1)  # (batch_size, seq_len-1)
-                
-                # Predict next tokens
-                logits = attention_output[:, :-1, :]  # (batch_size, seq_len-1, embedding_dim)
-                
-                # Add prediction head
-                if not hasattr(self, 'prediction_head'):
-                    self.prediction_head = nn.Linear(
-                        self.model_config['embedding_dim'], 
-                        self.model_config['n_tokens']
-                    ).to(self.device)
-                
-                predictions = self.prediction_head(logits)  # (batch_size, seq_len-1, n_tokens)
-                
-                # Compute loss
-                loss = self.criterion(
-                    predictions.reshape(-1, self.model_config['n_tokens']),
-                    target_tokens.reshape(-1)
-                )
-                
-                loss.backward()
-                self.optimizer.step()
-                
-                train_loss += loss.item()
-                
-                # Calculate accuracy
-                predicted_tokens = predictions.argmax(dim=-1)
-                train_correct += (predicted_tokens == target_tokens).sum().item()
-                train_total += target_tokens.numel()
-            
-            # Validation phase
-            self.tokenizer_model.eval()
-            self.attention_model.eval()
-            
-            val_loss = 0.0
-            val_correct = 0
-            val_total = 0
-            
+                tok_logits = self.tokenizer(x_batch)
+                enc = self.tokenizer.encode(x_batch)
+                attn_output, attn_info = self.attn(enc, enc, enc)
+
+                pred = tok_logits[:, :-1, :]
+                target = tok_logits [:, 1:, :].argmax(dim = -1)
+                loss_main = self.criterion(pred.reshape(-1, pred.size(-1)), target.reshape(-1))
+
+                if not hasattr(self, 'action_head'):
+                    self.action_head = nn.Linear(self.cfg['embedding_dim'], int(actions.max())+1).to(self.device)
+                global_emb = enc.mean(dim=1)                     # (B, E)
+                logits_action = self.action_head(global_emb)     # (B, A)
+                loss_aux = self.crit(logits_action, yb)
+
+                loss = loss_main + self.cfg.get('aux_weight', 0.5) * loss_aux
+                loss.backward(); self.opt.step()
+
+                with torch.no_grad():
+                    acc = (logits_action.argmax(dim=1) == yb).float().mean().item() * 100.0
+                tr_loss += loss.item(); tr_acc += acc; n_b += 1
+
+            tr_loss /= max(1, n_b); tr_acc /= max(1, n_b)
+
+            # Val
+            self.tokenizer.eval(); self.attn.eval()
+            va_loss = va_acc = n_b = 0
             with torch.no_grad():
-                for batch_data, batch_labels in val_loader:
-                    batch_data = batch_data.to(self.device)
-                    batch_labels = batch_labels.to(self.device)
-                    
-                    # Reshape data for tokenizer
-                    if len(batch_data.shape) == 3:
-                        batch_data = batch_data.transpose(1, 2)
+                for xb, yb in val_data:
+                    xb, yb = xb.to(self.device), yb.to(self.device)
+                    tok_logits = self.tokenizer(xb)
+                    enc = self.tokenizer.encode(xb)
+                    attn_out, attn_info = self.attn(enc, enc, enc)
+
+                    pred = tok_logits[:, :-1, :]
+                    tgt  = tok_logits[:, 1:, :].argmax(dim=-1)
+                    loss_main = self.crit(pred.reshape(-1, pred.size(-1)), tgt.reshape(-1))
+
+                    if hasattr(self, 'action_head'):
+                        global_emb = enc.mean(dim=1)
+                        logits_action = self.action_head(global_emb)
+                        loss_aux = self.crit(logits_action, yb)
+                        loss = loss_main + self.cfg.get('aux_weight', 0.5) * loss_aux
+                        va_acc += (logits_action.argmax(dim=1) == yb).float().mean().item() * 100.0
                     else:
-                        batch_data = batch_data.unsqueeze(1)
-                    
-                    # Forward pass
-                    tokens = self.tokenizer_model(batch_data)
-                    attention_output, attention_info = self.attention_model(tokens, tokens, tokens)
-                    
-                    # Token prediction
-                    input_tokens = tokens[:, :-1, :]
-                    target_tokens = tokens[:, 1:, :].argmax(dim=-1)
-                    
-                    logits = attention_output[:, :-1, :]
-                    predictions = self.prediction_head(logits)
-                    
-                    loss = self.criterion(
-                        predictions.reshape(-1, self.model_config['n_tokens']),
-                        target_tokens.reshape(-1)
-                    )
-                    
-                    val_loss += loss.item()
-                    
-                    # Calculate accuracy
-                    predicted_tokens = predictions.argmax(dim=-1)
-                    val_correct += (predicted_tokens == target_tokens).sum().item()
-                    val_total += target_tokens.numel()
-            
-            # Calculate metrics
-            train_loss /= len(train_loader)
-            val_loss /= len(val_loader)
-            train_acc = 100. * train_correct / train_total
-            val_acc = 100. * val_correct / val_total
-            
-            # Store history
-            history['train_loss'].append(train_loss)
-            history['val_loss'].append(val_loss)
-            history['train_acc'].append(train_acc)
-            history['val_acc'].append(val_acc)
-            
-            self.logger.info(f"Epoch {epoch+1}/{epochs} - "
-                           f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}% | "
-                           f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
-        
+                        loss = loss_main
+                    va_loss += loss.item(); n_b += 1
+            va_loss /= max(1, n_b); va_acc /= max(1, n_b)
+
+            self.history['train_loss'].append(tr_loss)
+            self.history['val_loss'].append(va_loss)
+            self.history['train_acc'].append(tr_acc)
+            self.history['val_acc'].append(va_acc)
+            self.logger.info(f"[Tok] Epoch {ep+1}: Train {tr_loss:.4f}/{tr_acc:.2f}% | Val {va_loss:.4f}/{va_acc:.2f}%")
+
         self.is_trained = True
-        self.training_history = history
-        
-        return history
-    
-    def tokenize_time_series(self, classified_data: np.ndarray) -> Dict[str, np.ndarray]:
+        return self.history
+
+    @torch.no_grad()
+    def build_rl_trajectories(self, tokens_win: np.ndarray, actions: np.ndarray) -> Dict[str, np.ndarray]:
         """
-        Tokenize time series data and generate Q/K/V matrices
-        
-        Args:
-            classified_data: Classified sensor data
-            
-        Returns:
-            Dictionary containing tokens and Q/K/V matrices
+        Convert windows -> episodes -> contextual embeddings + Q/K/V for RL.
+        Returns a dict with padded tensors per batch (numpy arrays).
         """
-        if not self.is_trained and self.tokenizer_model is None:
-            raise ValueError("Tokenizer must be trained or loaded before tokenization")
-        
-        # Prepare data
-        dataset = TokenizationDataset(
-            classified_data, 
-            np.zeros(len(classified_data)),  # Dummy labels
-            sequence_length=self.model_config['max_sequence_length'],
-            stride=self.model_config['max_sequence_length'] // 2
+        ds = TokensEpisodeDataset(
+            tokens_win, actions,
+            windows_per_episode=self.cfg.get('windows_per_episode', 8),
+            stride_windows=self.cfg.get('stride_windows', 8)
         )
-        
-        dataloader = DataLoader(
-            dataset,
-            batch_size=self.model_config.get('batch_size', 32),
-            shuffle=False
-        )
-        
-        # Tokenization
-        self.tokenizer_model.eval()
-        self.attention_model.eval()
-        
-        all_tokens = []
-        all_queries = []
-        all_keys = []
-        all_values = []
-        all_attention_weights = []
-        
-        with torch.no_grad():
-            for batch_data, _ in tqdm(dataloader, desc="Tokenizing"):
-                batch_data = batch_data.to(self.device)
-                
-                # Reshape data for tokenizer
-                if len(batch_data.shape) == 3:
-                    batch_data = batch_data.transpose(1, 2)
-                else:
-                    batch_data = batch_data.unsqueeze(1)
-                
-                # Generate tokens
-                tokens = self.tokenizer_model(batch_data)  # (batch_size, seq_len, n_tokens)
-                
-                # Generate Q/K/V matrices
-                attention_output, attention_info = self.attention_model(tokens, tokens, tokens)
-                
-                # Store results
-                all_tokens.append(tokens.cpu().numpy())
-                all_queries.append(attention_info['query'].cpu().numpy())
-                all_keys.append(attention_info['key'].cpu().numpy())
-                all_values.append(attention_info['value'].cpu().numpy())
-                all_attention_weights.append(attention_info['attention_weights'].cpu().numpy())
-        
-        # Concatenate results
-        result = {
-            'tokens': np.concatenate(all_tokens, axis=0),
-            'queries': np.concatenate(all_queries, axis=0),
-            'keys': np.concatenate(all_keys, axis=0),
-            'values': np.concatenate(all_values, axis=0),
-            'attention_weights': np.concatenate(all_attention_weights, axis=0)
+        if len(ds) == 0:
+            raise ValueError("Too few windows to form episodes.")
+
+        # collate all episodes (no batching needed for export)
+        obs_embeddings = []  # (T, E)
+        acts = []
+        q_list, k_list, v_list, attn_w_list = [], [], [], []
+        lens = []
+
+        for i in tqdm(range(len(ds)), desc="Building RL Trajectories"):
+            xb, yb = ds[i]                               # xb: (128, T)
+            xb = xb.unsqueeze(0).to(self.device)        # (1, 128, T)
+
+            enc = self.tokenizer.encode(xb)             # (1, Tenc, E)
+            attn_out, info = self.attn(enc, enc, enc)   # (1, Tenc, E), dict
+
+            Tenc = enc.size(1)
+            obs_embeddings.append(enc.squeeze(0).cpu().numpy())  # (Tenc, E)
+            acts.append(int(yb.item()))
+            q_list.append(info['query'].squeeze(0).cpu().numpy())         # (H, Tenc, D)
+            k_list.append(info['key'].squeeze(0).cpu().numpy())
+            v_list.append(info['value'].squeeze(0).cpu().numpy())
+            attn_w_list.append(info['attention_weights'].squeeze(0).cpu().numpy())  # (H, Tenc, Tenc)
+            lens.append(Tenc)
+
+        # pad to the max length for easy batching
+        max_len = max(lens)
+        E = self.cfg['embedding_dim']; H = self.cfg['nhead']; D = E // H
+
+        def pad_list(mats, pad_shape, axis=0, value=0.0):
+            out = np.full((len(mats),) + pad_shape, value, dtype=np.float32)
+            for i, m in enumerate(mats):
+                sl = [slice(None)] * len(pad_shape)
+                sl[0] = slice(0, m.shape[0])  # time
+                out[(i, *sl)] = m
+            return out
+
+        # obs: (N_eps, max_len, E), mask: (N_eps, max_len)
+        obs = np.full((len(obs_embeddings), max_len, E), 0.0, dtype=np.float32)
+        mask = np.zeros((len(obs_embeddings), max_len), dtype=np.float32)
+        for i, emb in enumerate(obs_embeddings):
+            L = emb.shape[0]
+            obs[i, :L] = emb
+            mask[i, :L] = 1.0
+
+        # Q/K/V: store as (N_eps, H, max_len, D) with padding
+        def pad_qkv(lst, head_dims):
+            out = np.zeros((len(lst),) + head_dims, dtype=np.float32)
+            for i, m in enumerate(lst):
+                H, L, D = m.shape
+                out[i, :, :L, :] = m
+            return out
+
+        Q = pad_qkv(q_list, (H, max_len, D))
+        K = pad_qkv(k_list, (H, max_len, D))
+        V = pad_qkv(v_list, (H, max_len, D))
+
+        # attention weights: (N_eps, H, max_len, max_len)
+        Attn = np.zeros((len(attn_w_list), H, max_len, max_len), dtype=np.float32)
+        for i, m in enumerate(attn_w_list):
+            H_, L, _ = m.shape
+            Attn[i, :, :L, :L] = m
+
+        return {
+            'obs_embeddings': obs,   # (N, T, E)
+            'actions': np.array(acts, dtype=np.int64),   # (N,)
+            'mask': mask,            # (N, T)
+            'lengths': np.array(lens, dtype=np.int32),
+            'Q': Q, 'K': K, 'V': V,  # (N, H, T, D)
+            'attention': Attn        # (N, H, T, T)
         }
-        
-        self.logger.info(f"Tokenization complete. Generated {result['tokens'].shape[0]} token sequences")
-        return result
-    
-    def save_models(self, save_path: str):
-        """Save the tokenization models"""
-        save_data = {
-            'tokenizer_state_dict': self.tokenizer_model.state_dict(),
-            'attention_state_dict': self.attention_model.state_dict(),
-            'model_config': self.model_config,
-            'training_history': self.training_history,
+
+    def save_models(self, path: str):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {
+            'cfg': self.cfg,
+            'tokenizer': self.tokenizer.state_dict(),
+            'attn': self.attn.state_dict(),
+            'history': self.history,
             'is_trained': self.is_trained
         }
-        
-        if hasattr(self, 'prediction_head'):
-            save_data['prediction_head_state_dict'] = self.prediction_head.state_dict()
-        
-        torch.save(save_data, save_path)
-        self.logger.info(f"Models saved to {save_path}")
-    
-    def load_models(self, load_path: str):
-        """Load pre-trained tokenization models"""
-        save_data = torch.load(load_path, map_location=self.device)
-        
-        self.model_config = save_data['model_config']
-        self.training_history = save_data['training_history']
-        self.is_trained = save_data['is_trained']
-        
-        # Initialize models
-        if self.tokenizer_model is None:
-            # We need to determine the input dimensions from the saved config
-            input_dim = self.model_config.get('input_dim', 1)
-            n_classes = self.model_config.get('n_classes', 6)
-            self.initialize_models(input_dim, n_classes)
-        
-        # Load state dictionaries
-        self.tokenizer_model.load_state_dict(save_data['tokenizer_state_dict'])
-        self.attention_model.load_state_dict(save_data['attention_state_dict'])
-        
-        if 'prediction_head_state_dict' in save_data:
-            self.prediction_head = nn.Linear(
-                self.model_config['embedding_dim'],
-                self.model_config['n_tokens']
-            ).to(self.device)
-            self.prediction_head.load_state_dict(save_data['prediction_head_state_dict'])
-        
-        self.logger.info(f"Models loaded from {load_path}")
-    
-    def visualize_attention(self, tokens: np.ndarray, attention_weights: np.ndarray, 
-                          sample_idx: int = 0) -> None:
-        """
-        Visualize attention patterns
-        
-        Args:
-            tokens: Token sequences
-            attention_weights: Attention weight matrices
-            sample_idx: Index of sample to visualize
-        """
-        import matplotlib.pyplot as plt
-        
-        # Select sample
-        sample_attention = attention_weights[sample_idx]  # (n_heads, seq_len, seq_len)
-        
-        # Average across heads
-        avg_attention = np.mean(sample_attention, axis=0)
-        
-        # Create heatmap
-        plt.figure(figsize=(10, 8))
-        plt.imshow(avg_attention, cmap='Blues', aspect='auto')
-        plt.colorbar(label='Attention Weight')
-        plt.xlabel('Key Position')
-        plt.ylabel('Query Position')
-        plt.title(f'Attention Pattern - Sample {sample_idx}')
-        plt.tight_layout()
-        plt.show()
-        
-        self.logger.info(f"Attention visualization displayed for sample {sample_idx}")
+        if hasattr(self, 'action_head'):
+            data['action_head'] = self.action_head.state_dict()
+        torch.save(data, path)
+        self.logger.info(f"Saved tokenizer models to {path}")
 
+    def load_models(self, path: str):
+        data = torch.load(path, map_location=self.device)
+        self.cfg = data['cfg']
+        # size models
+        self.initialize_models(inp_channels=128, inp_length=self.cfg.get('max_sequence_length', 1000))
+        self.tokenizer.load_state_dict(data['tokenizer'])
+        self.attn.load_state_dict(data['attn'])
+        if 'action_head' in data:
+            self.action_head = nn.Linear(self.cfg['embedding_dim'], self.cfg.get('n_actions', 64)).to(self.device)
+            self.action_head.load_state_dict(data['action_head'])
+        self.history = data.get('history', self.history)
+        self.is_trained = data.get('is_trained', False)
+        self.logger.info(f"Loaded tokenizer models from {path}")
 
 def main():
-    """Main function for standalone tokenization pipeline"""
     import argparse
-    
-    parser = argparse.ArgumentParser(description='Tokenization Pipeline')
-    parser.add_argument('--classified-data', type=str, required=True, help='Path to classified data')
-    parser.add_argument('--mode', choices=['train', 'tokenize'], default='train')
-    parser.add_argument('--model-path', type=str, help='Path to save/load model')
-    parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=32, help='Batch size')
-    parser.add_argument('--embedding-dim', type=int, default=128, help='Embedding dimension')
-    parser.add_argument('--n-tokens', type=int, default=512, help='Number of tokens')
-    
+    parser = argparse.ArgumentParser(description='Tokenization from classifier tokens')
+    parser.add_argument('--classifier-npz', required=True,
+                        help='Path to output/classifier/test_predictions_and_tokens.npz')
+    parser.add_argument('--mode', choices=['train', 'emit_rl'], default='train')
+    parser.add_argument('--model-path', type=str, default='output/tokenizer/tokenizer.pth')
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--batch-size', type=int, default=16)
+    parser.add_argument('--embedding-dim', type=int, default=128)
+    parser.add_argument('--n-tokens', type=int, default=512)
+    parser.add_argument('--nhead', type=int, default=8)
+    parser.add_argument('--layers', type=int, default=6)
+    parser.add_argument('--dropout', type=float, default=0.1)
+    parser.add_argument('--windows-per-episode', type=int, default=8)
+    parser.add_argument('--stride-windows', type=int, default=8)
+    parser.add_argument('--aux-weight', type=float, default=0.5)
     args = parser.parse_args()
-    
-    # Create model config
-    model_config = {
+
+    os.makedirs('output/tokenizer', exist_ok=True)
+
+    cfg = {
         'embedding_dim': args.embedding_dim,
         'n_tokens': args.n_tokens,
-        'nhead': 8,
-        'num_encoder_layers': 6,
-        'dropout': 0.1,
-        'max_sequence_length': 1000,
+        'nhead': args.nhead,
+        'num_encoder_layers': args.layers,
+        'dropout': args.dropout,
         'batch_size': args.batch_size,
-        'learning_rate': 0.001
+        'learning_rate': 1e-3,
+        'max_sequence_length': 4096,          # upper bound for adaptive pooling
+        'windows_per_episode': args.windows_per_episode,
+        'stride_windows': args.stride_windows,
+        'aux_weight': args.aux_weight
     }
-    
-    # Initialize pipeline
-    pipeline = TokenizationPipeline(model_config)
-    
-    # Load data
-    data = np.load(args.classified_data)
-    if isinstance(data, np.lib.npyio.NpzFile):
-        classified_data = data['predictions']
-        action_labels = data['confidences']  # Use confidences as labels for now
-    else:
-        classified_data = data
-        action_labels = np.zeros(len(classified_data))
-    
-    if args.mode == 'train':
-        # Train tokenizer
-        history = pipeline.train_tokenizer(classified_data, action_labels, epochs=args.epochs)
-        
-        if args.model_path:
-            pipeline.save_models(args.model_path)
-        
-        print(f"Training completed. Final validation accuracy: {history['val_acc'][-1]:.2f}%")
-        
-    elif args.mode == 'tokenize':
-        # Load model
-        if args.model_path:
-            pipeline.load_models(args.model_path)
-        token_data = pipeline.tokenize_time_series(classified_data)
-        
-        np.savez('tokenization_results.npz', **token_data)
-        print(f"Tokenization completed. Generated {token_data['tokens'].shape[0]} token sequences")
 
+    data = np.load(args.classifier_npz)
+    tokens_win = data['tokens'].astype(np.float32)  # (N_win, T', 128)
+    # Use predicted behavior as the default action signal for RL conditioning
+    actions = data['pred_behavior'] if 'pred_behavior' in data else np.zeros(len(tokens_win), dtype=np.int64)
+
+    pipe = TokenizationPipeline(cfg)
+
+    if args.mode == 'train':
+        hist = pipe.train_on_classifier_tokens(tokens_win, actions, epochs=args.epochs)
+        pipe.save_models(args.model_path)
+        print(f"Training done. Last val acc: {hist['val_acc'][-1]:.2f}%")
+    else:
+        # Load and emit RL-ready pack
+        pipe.load_models(args.model_path)
+        rl = pipe.build_rl_trajectories(tokens_win, actions)
+        np.savez('output/tokenizer/rl_trajectories.npz', **rl)
+        print("Saved RL trajectories to output/tokenizer/rl_trajectories.npz")
 
 if __name__ == '__main__':
-    main() 
+    main()
