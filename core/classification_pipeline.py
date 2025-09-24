@@ -136,7 +136,11 @@ class ClassificationOnlyPipeline:
             val_loss, val_acc, n_batch = 0.0, 0.0, 0
 
             with torch.no_grad():
-                for x_batch, y_batch in val_loader:
+                for batch in val_loader:
+                    if len(batch) == 3:
+                        x_batch, y_batch, _ = batch
+                    else: 
+                        x_batch, y_batch = batch
                     x_batch = x_batch.to(self.device)
                     targets = self._extract_targets(y_batch)
 
