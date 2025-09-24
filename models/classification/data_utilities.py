@@ -98,12 +98,12 @@ def preprocess_multilabel(X: np.ndarray, y_str: Dict[str, np.ndarray]) -> Tuple[
 
 def create_train_val_loaders(
     X_train, y_train_enc, groups_train,
-    window_size=256, batch_size=64, overlap=0.5, task='both'):
+    window_size=50, batch_size=64, overlap=0.5, task='both'):
     gss = GroupShuffleSplit(test_size=0.2, random_state=42)
     tr_idx, val_idx = next(gss.split(X_train, y_train_enc['behavior'], groups=groups_train))
 
-    tr = (X_train[tr_idx], {k: y_train_enc[k][tr_idx] for k in y_train_enc})
-    va = (X_train[val_idx], {k: y_train_enc[k][val_idx] for k in y_train_enc})
+    tr = (X_train[tr_idx], {k: v[tr_idx] for k,v in y_train_enc.items()}, groups_train[tr_idx])
+    va = (X_train[val_idx], {k: v[val_idx] for k,v in y_train_enc.items()}, groups_train[val_idx])
 
     ds_tr = TimeSeriesDataset(*tr, window_size=window_size, overlap=overlap, task=task)
     ds_va = TimeSeriesDataset(*va, window_size=window_size, overlap=overlap, task=task)
@@ -113,8 +113,8 @@ def create_train_val_loaders(
         DataLoader(ds_va, batch_size=batch_size, shuffle=False),
     )
 
-def create_test_loader(X_test, y_test_enc, window_size=256, batch_size=64, overlap=0.5, task='both'):
-    ds_te = TimeSeriesDataset(X_test, y_test_enc, window_size=window_size, overlap=overlap, task=task)
+def create_test_loader(X_test, y_test_enc, groups_test,window_size=256, batch_size=64, overlap=0.5, task='both'):
+    ds_te = TimeSeriesDataset(X_test, y_test_enc, groups_test, window_size=window_size, overlap=overlap, task=task)
     return DataLoader(ds_te, batch_size=batch_size, shuffle=False)
 
 

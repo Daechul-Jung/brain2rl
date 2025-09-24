@@ -26,6 +26,7 @@ from models.classification.data_utilities import (
     load_sensor_data, preprocess_multilabel, 
     create_train_val_loaders,create_test_loader, save_preprocessing_info
 )
+from models.classification.segment_utils import *
 
 
 class ClassificationOnlyPipeline:    
@@ -225,7 +226,85 @@ class ClassificationOnlyPipeline:
             btxt = beh[i] if beh is not None else "-"
             gtxt = ges[i] if ges is not None else "-"
             print(f"[win {i:04d}] behavior={btxt}  gesture={gtxt}")
+    @torch.no_grad()
+    def export_segment_tokens(self, csv_path: str, save_dir: str,
+                              pool_k: int =16, 
+                              group_key: str = 'sequence_id',
+                              segment_by: str = 'behavior'):
+        """
+        Create fixed k tokens per contiguous action segment and save as NPZ
 
+        segment by behvaior
+        """
+
+        os.makedirs(save_dir, exist_ok=True)
+        X_raw, y_str, groups, df = load_sensor_data(csv_path, group_key)
+        X = self.scaler.transform(X_raw)
+
+        y_enc = {
+            'behavior': self.encoders['behavior'].transform(y_str['behavior']),
+            'gesture' : self.encoders['gesture'].transform(y_str['gesture'])
+        }
+        group_vals = groups.astype(str)
+        subjects = df['subject'].astype(str).values
+        seq_ids  = df[group_key].astype(str).values
+
+        # 2) Build segments
+        use_gesture = (segment_by == 'behavior_gesture')
+        segs = contiguous_segments(group_vals, y_enc['behavior'], y_enc['gesture'] if use_gesture else None)
+        if not segs:
+            raise ValueError("No segments found. Check labels/grouping.")
+
+        # 3) Run CNN trunk -> K tokens per segment
+        self.model.eval()
+        all_tok = []
+        beh_ids, ges_ids, seg_len, seg_subject, seg_seq = [], [], [], [], []
+
+        C = X.shape[1]
+        for (s, e, gk, b, ge) in segs:
+            x_seg = torch.from_numpy(X[s:e].astype(np.float32).T).unsqueeze(0).to(self.device)  # (1,C,T)
+            tok = self.model.tokens_from_raw(x_seg, pool_tokens_to=pool_k)  # (1,K,128)
+            all_tok.append(tok.squeeze(0).cpu().numpy())  # (K,128)
+            beh_ids.append(b)
+            ges_ids.append(ge)
+            seg_len.append(e - s)
+            seg_subject.append(subjects[s])
+            seg_seq.append(seq_ids[s])
+
+        tokens = np.stack(all_tok, axis=0)              # (N_segments, K, 128)
+        beh_ids = np.array(beh_ids, dtype=np.int64)
+        ges_ids = np.array(ges_ids, dtype=np.int64)
+        seg_len = np.array(seg_len, dtype=np.int32)
+
+        # 4) Prototypes per behavior (mean over time then mean over segments)
+        seg_emb = tokens.mean(axis=1)                   # (N_segments, 128)
+        nB = len(self.encoders['behavior'].classes_)
+        beh_proto = np.zeros((nB, 128), dtype=np.float32)
+        for b in range(nB):
+            m = seg_emb[beh_ids == b]
+            if len(m) > 0:
+                beh_proto[b] = m.mean(axis=0)
+
+        out = {
+            'tokens': tokens,                           # (N_seg, K, 128)
+            'behavior_id': beh_ids,                     # (N_seg,)
+            'behavior_str': self.encoders['behavior'].inverse_transform(beh_ids),
+            'gesture_id': ges_ids,                      # (N_seg,)
+            'gesture_str': np.array(
+                [self.encoders['gesture'].inverse_transform([g])[0]
+                if g >=0 else '' for g in ges_ids], dtype=object),
+            'segment_len': seg_len,                     # rows in original CSV
+            'subject': np.array(seg_subject, dtype=object),
+            group_key: np.array(seg_seq, dtype=object),
+            'behavior_prototypes': beh_proto,           # (n_behavior,128)
+            'pool_k': np.int32(pool_k)
+        }
+
+        save_path = os.path.join(save_dir, f'segment_tokens_K{pool_k}.npz')
+        np.savez(save_path, **out)
+        self.logger.info(f"Saved segment tokens to {save_path} "
+                        f"(segments={tokens.shape[0]}, K={pool_k})")
+        return save_path
     
     def run(self, train_csv, test_csv, output_dir='output'):
         X_train_raw, y_train_str, group_train, df = load_sensor_data(train_csv, group_by='sequence_id')
@@ -305,6 +384,15 @@ def main():
     parser.add_argument('--test-csv', required=True)
     parser.add_argument('--subject-print', help='Subject ID from test.csv to print per-window predictions')
     parser.add_argument('--output-dir', default='output')
+    parser.add_argument('--export-segment-tokens', action='store_true',
+                        help='Export fixed-K tokens per action segment')
+    parser.add_argument('--export-from', choices=['train','test'], default='test',
+                        help='Which split CSV to export from')
+    parser.add_argument('--pool-k', type=int, default=16,
+                        help='Number of tokens per segment after pooling')
+    parser.add_argument('--segment-by', choices=['behavior','behavior_gesture'], default='behavior')
+    parser.add_argument('--group-key', default='sequence_id',
+                        help="Group boundary key for segments (e.g., 'sequence_id' or 'subject')")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -312,6 +400,16 @@ def main():
     pipe = ClassificationOnlyPipeline(cfg)
     res = pipe.run(args.train_csv, args.test_csv, output_dir=args.output_dir)
 
+
+    if args.export_segment_tokens:
+        csv_src = args.train_csv if args.export_from == 'train' else args.test_csv
+        pipe.export_segment_tokens(
+            csv_path=csv_src,
+            save_dir=os.path.join(args.output_dir, 'classifier'),
+            pool_k=args.pool_k,
+            group_key=args.group_key,
+            segment_by=args.segment_by
+        )
     if args.subject_print:
         pipe.print_subject_predictions(args.test_csv, args.subject_print)
 
