@@ -41,7 +41,7 @@ class ClassificationOnlyPipeline:
         self.scaler = None
         self.encoders = None 
         self.optimizer = None 
-
+        self.task = self.config['task']
         self.criterion = nn.CrossEntropyLoss()
         
         self.logger.info(f"Classification Pipeline initialized on device: {self.device}")
@@ -58,22 +58,21 @@ class ClassificationOnlyPipeline:
         
         return logger
     
-    def _compute_loss(self, outputs, targets, task='both'):
-        if task == 'behavior':
+    def _compute_loss(self, outputs, targets):
+        if self.task == 'behavior':
             return self.criterion(outputs['behavior_logits'], targets)
         
-        elif task == 'gesture':
+        elif self.task == 'gesture':
             return self.criterion(outputs['gesture_logits'], targets)
         
         y_behavior, y_gesture= targets
-
         loss_behavior = self.criterion(outputs['behavior_logits'], y_behavior)
         loss_gesture = self.criterion(outputs['gesture_logits'], y_gesture)
 
         return loss_behavior + loss_gesture
     
-    def _extract_targets(self, batch_y, task = 'both'):
-        if task == 'both':
+    def _extract_targets(self, batch_y, ):
+        if self.task == 'both':
             y_behavior, y_gesture = batch_y
             return (y_behavior.to(self.device), y_gesture.to(self.device))
         else:
@@ -81,14 +80,14 @@ class ClassificationOnlyPipeline:
     
     
     def train(self, train_loader, val_loader, num_behave, num_gesture):
-        task = self.config.get('task', 'both')
+        
 
         x_batch, y_batch, _ = next(iter(train_loader))  ### (Batch size, Channel(number of sensors used), window_size)
         n_channels = x_batch.shape[1]
         n_times = x_batch.shape[2]
 
         self.model = ActionClassifier(n_channels=n_channels, n_times=n_times,
-                                      n_behavior_classes=num_behave, n_gesture_classes=num_gesture, task=task, device=self.device)
+                                      n_behavior_classes=num_behave, n_gesture_classes=num_gesture, task=self.task, device=self.device)
         
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['classifier_lr'])
 
@@ -96,10 +95,10 @@ class ClassificationOnlyPipeline:
         best_val = 0
 
         def acc_from_logits(outputs, targets):
-            if task == 'behavior':
+            if self.task == 'behavior':
                 logits = outputs['behavior_logits']; y = targets
 
-            elif task == 'gesture':
+            elif self.task == 'gesture':
                 logits = outputs['gesture_logits']; y = targets
             
             else :
@@ -116,12 +115,12 @@ class ClassificationOnlyPipeline:
                     x_batch, y_batch, _ = batch
                 else:
                     x_batch, y_batch = batch
-                x_batch = x_batch.to(self.device)
-                targets = self._extract_targets(y_batch, task)
+                x_batch = x_batch.to(self.device)  ## (number of samples(segments), number of sensors, length of time series )
+                targets = self._extract_targets(y_batch)
 
                 self.optimizer.zero_grad()
                 outputs = self.model(x_batch)
-                loss = self._compute_loss(outputs, targets=targets, task= task)
+                loss = self._compute_loss(outputs, targets=targets)
                 loss.backward()
                 self.optimizer.step()
 
@@ -139,13 +138,13 @@ class ClassificationOnlyPipeline:
             with torch.no_grad():
                 for x_batch, y_batch in val_loader:
                     x_batch = x_batch.to(self.device)
-                    targets = self._extract_targets(y_batch, task)
+                    targets = self._extract_targets(y_batch)
 
                     outputs = self.model(x_batch)
-                    loss = self._compute_loss(outputs, targets, task)
+                    loss = self._compute_loss(outputs, targets)
 
                     val_loss += loss.item()
-                    val_acc += acc_from_logits(outputs, targets, task)
+                    val_acc += acc_from_logits(outputs, targets)
                     n_batch += 1
                 val_loss /= max(1, n_batch)
                 val_acc /= max(1, n_batch)
@@ -164,7 +163,7 @@ class ClassificationOnlyPipeline:
         
     def evaluate_and_dump(self, test_loader: DataLoader, encoders, dump_dir='output/classifier'):
         os.makedirs(dump_dir, exist_ok=True)
-        task = self.config.get('task', 'both')
+        
         pool_k = self.config.get('pool_k', None)
         self.model.eval()
 
@@ -184,26 +183,26 @@ class ClassificationOnlyPipeline:
                 if 'tokens' in outputs:
                     all_tokens.append(outputs['tokens'].cpu().numpy())
 
-                if task in ('behavior','both'):
+                if self.task in ('behavior','both'):
                     pb = outputs['behavior_logits'].argmax(dim=1).cpu().numpy()
                     all_pred_behavior.append(pb)
-                    tb = (y_batch[0] if task=='both' else y_batch).cpu().numpy()
+                    tb = (y_batch[0] if self.task=='both' else y_batch).cpu().numpy()
                     all_true_behavior.append(tb)
-                if task in ('gesture','both'):
+                if self.task in ('gesture','both'):
                     pg = outputs['gesture_logits'].argmax(dim=1).cpu().numpy()
                     all_pred_gesture.append(pg)
-                    tg = (y_batch[1] if task=='both' else y_batch).cpu().numpy()
+                    tg = (y_batch[1] if self.task=='both' else y_batch).cpu().numpy()
                     all_true_gesture.append(tg)
 
         result = {}
         if all_tokens:
             result['tokens'] = np.concatenate(all_tokens, axis=0)  # (N, K, 128) when pool_k set
-        if task in ('behavior','both'):
+        if self.task in ('behavior','both'):
             result['pred_behavior'] = np.concatenate(all_pred_behavior, axis=0)
             result['true_behavior'] = np.concatenate(all_true_behavior, axis=0)
             result['pred_behavior_str'] = encoders['behavior'].inverse_transform(result['pred_behavior'])
             result['true_behavior_str'] = encoders['behavior'].inverse_transform(result['true_behavior'])
-        if task in ('gesture','both'):
+        if self.task in ('gesture','both'):
             result['pred_gesture'] = np.concatenate(all_pred_gesture, axis=0)
             result['true_gesture'] = np.concatenate(all_true_gesture, axis=0)
             result['pred_gesture_str'] = encoders['gesture'].inverse_transform(result['pred_gesture'])
@@ -320,13 +319,13 @@ class ClassificationOnlyPipeline:
         return save_path
     
     def run(self, train_csv, test_csv, output_dir='output'):
-        # 1) load & preprocess
+        # load and preprocess
         X_train_raw, y_train_str, group_train, df_tr = load_sensor_data(train_csv, group_by='sequence_id')
         X_train, y_train, self.scaler, self.encoders = preprocess_multilabel(X_train_raw, y_train_str)
-
+        print(f'y_train after process multi_label: {y_train}')
         # ---- choose training mode ----
         train_mode = self.config.get('train_mode', 'segments')  # 'segments' or 'windows'
-        task = self.config.get('task', 'both')
+        
 
         if train_mode == 'windows':
             # original windowed loaders (but group-aware inside your util)
@@ -334,7 +333,7 @@ class ClassificationOnlyPipeline:
                 X_train=X_train, y_train_enc=y_train, groups_train=group_train,
                 window_size=self.config['window_size'],
                 batch_size=self.config['batch_size'],
-                overlap=0.5, task=task
+                overlap=0.5, task=self.task
             )
         else:
             # --- SEGMENT MODE: build contiguous segments and split by groups ---
@@ -352,13 +351,13 @@ class ClassificationOnlyPipeline:
             segs_tr = [s for s in segs_all if s[2] in train_groups]
             segs_va = [s for s in segs_all if s[2] in val_groups]
 
-            ds_tr = SegmentDataset(X_train, y_train, group_train, segs_tr, task=task)
-            ds_va = SegmentDataset(X_train, y_train, group_train, segs_va, task=task)
+            ds_tr = SegmentDataset(X_train, y_train, group_train, segs_tr, task=self.task)
+            ds_va = SegmentDataset(X_train, y_train, group_train, segs_va, task=self.task)
 
             train_loader = DataLoader(ds_tr, batch_size=self.config['batch_size'],
-                                    shuffle=True, collate_fn=lambda b: pad_collate(b, task=task))
+                                    shuffle=True, collate_fn=lambda b: pad_collate(b, task=self.task))
             val_loader   = DataLoader(ds_va, batch_size=self.config['batch_size'],
-                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=task))
+                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
 
         num_behave = len(self.encoders['behavior'].classes_)
         num_gesture = len(self.encoders['gesture'].classes_)
@@ -378,7 +377,7 @@ class ClassificationOnlyPipeline:
                 X_test=X_test, y_test_enc=y_test,
                 window_size=self.config['window_size'],
                 batch_size=self.config['batch_size'],
-                overlap=0.5, task=task
+                overlap=0.5, task=self.task
             )
         else:
             # segment test loader
@@ -386,9 +385,9 @@ class ClassificationOnlyPipeline:
             segs_te = contiguous_segments(group_test.astype(str),
                                         y_test['behavior'],
                                         y_test['gesture'] if use_gesture_for_seg else None)
-            ds_te = SegmentDataset(X_test, y_test, group_test, segs_te, task=task)
+            ds_te = SegmentDataset(X_test, y_test, group_test, segs_te, task=self.task)
             test_loader = DataLoader(ds_te, batch_size=self.config['batch_size'],
-                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=task))
+                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
 
         preds = self.evaluate_and_dump(test_loader=test_loader, encoders=self.encoders,
                                     dump_dir=os.path.join(output_dir,'classifier'))
@@ -433,9 +432,9 @@ def create_classification_config() -> Dict[str, Any]:
         'classifier_lr': 1e-3,
         'classifier_epochs': 500,
         'classifier_dropout': 0.1,
-        'task': 'both', 
-        'train_mode': 'segments',    # <-- default to SEGMENTS
-        'pool_k': 16,                # <-- fixed number of tokens per segment for training & eval
+        'task': 'behavior', 
+        'train_mode': 'segments', 
+        'pool_k': 16,               
         'segment_by': 'behavior',
     }
 def main():

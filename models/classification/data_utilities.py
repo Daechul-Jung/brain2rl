@@ -27,17 +27,27 @@ def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, gro
         group_by: Group by sequence_id to make it as time series 
         
     Returns:
-        Tuple of (data, labels)
+        Returns:
+        X: np.ndarray of shape (N_rows, C_sensors)
+        y: dict with 'behavior' and 'gesture' arrays of length N_rows
+        groups: np.ndarray of length N_rows (e.g., sequence_id)
+        df: the cleaned pandas DataFrame (for debugging/inspection)
     """
     print(f"Loading sensor data from {data_dir}")
     df = pd.read_csv(data_dir)
     subject_ids = np.unique(df['subject'].dropna().astype(str).unique())
     print(f'total subjects in the training datset: {len(subject_ids)}')
+    if subject_ids is not None:
+        subject_ids = [str(s) for s in subject_ids]
+        df = df[df['subject'].astype(str).isin(subject_ids)].copy()
+
     if 'sequence_id' not in df.columns:
         if 'row_id' in df.columns:
             df['sequence_id'] = df['row_id'].astype(str).str.split('_').str[:2].str.join('_')
+        ## Change sequence id 
         elif 'sequence_id' in df.columns:
             df['sequence_id'] = df['sequence'].astype(str)
+            
 
     sort_cols = ['subject', 'sequence_id']
     if 'sequence_counter' in df.columns:
@@ -56,11 +66,11 @@ def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, gro
     if 'behavior' not in df.columns or 'gesture' not in df.columns:
         raise ValueError("Expected 'behavior' and 'gesture' columns in the CSV.")
 
-    df[sensor_cols] = df[sensor_cols].replace(-1, np.nan)
+    df[sensor_cols] = df[sensor_cols].replace(-1, np.nan) ### replace -1 value to nan
 
     df[sensor_cols] = (
-        df.groupby('sequence_id', sort=False)[sensor_cols]
-        .apply(lambda g: g.ffill().bfill())
+        df.groupby('sequence_id', sort=False)[sensor_cols] ## group by sequence id and do not sort
+        .apply(lambda g: g.ffill().bfill()) ## 
         .reset_index(level=0, drop=True)
     )
 
@@ -93,6 +103,7 @@ def preprocess_multilabel(X: np.ndarray, y_str: Dict[str, np.ndarray]) -> Tuple[
         le = LabelEncoder()
         y_encoders[key] = le.fit_transform(y_str[key])
         encoders[key] = le
+        
         print(f'{key}: {len(le.classes_)} classes')
     return X_scaled, y_encoders, scaler, encoders
 
