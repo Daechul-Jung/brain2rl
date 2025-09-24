@@ -41,8 +41,9 @@ class ActionClassifier(nn.Module):
         h = self.trunk(x)                     # (B, 128, T')
         if pool_tokens_to is not None:
             h = torch.nn.functional.adaptive_avg_pool1d(h, pool_tokens_to)
-        if h.size(-1) != self.time_after_pool:
-            h = torch.nn.functional.adaptive_avg_pool1d(h, self.time_after_pool)
+        else:
+            if h.size(-1) != self.time_after_pool:
+                h = torch.nn.functional.adaptive_avg_pool1d(h, self.time_after_pool)
 
         # tokens = projected per-timestep features
         tokens = self.proj(h.transpose(1,2))  # (B, T', 128)

@@ -32,7 +32,7 @@ def load_sensor_data(data_dir: str, subject_ids: Optional[List[str]] = None, gro
     print(f"Loading sensor data from {data_dir}")
     df = pd.read_csv(data_dir)
     subject_ids = np.unique(df['subject'].dropna().astype(str).unique())
-    print(len(subject_ids))
+    print(f'total subjects in the training datset: {len(subject_ids)}')
     if 'sequence_id' not in df.columns:
         if 'row_id' in df.columns:
             df['sequence_id'] = df['row_id'].astype(str).str.split('_').str[:2].str.join('_')

@@ -76,7 +76,7 @@ class TokenizationPipeline:
         )
 
         self.logger.info(f"Initialized tokenizer (E={self.cfg['embedding_dim']}) with conv_frontend=False")
-
+        
 
     def _spilt_train_val(self, dataset: Dataset, ratio:float = 0.8):
         n = len(dataset)
@@ -121,28 +121,33 @@ class TokenizationPipeline:
                 x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
 
                 self.optimizer.zero_grad()
-                tok_logits = self.tokenizer(x_batch)
-                enc = self.tokenizer.encode(x_batch)
-                attn_output, attn_info = self.attn(enc, enc, enc)
+                tok_logits = self.tokenizer(x_batch)  ## (Batch, S, n_tokens) teacher
+                enc = self.tokenizer.encode(x_batch)  ## (Batch, sequence, E) embeddings
 
-                pred = tok_logits[:, :-1, :]
-                target = tok_logits [:, 1:, :].argmax(dim = -1)
+                attn_output, attn_info = self.attn(enc, enc, enc)
+                print(f'shape of encoded tokens: {enc.shape} and shape of attention output: {attn_output.shape}')
+                if not hasattr(self, 'prodiction_head'):
+                    self.prediction_head = nn.Linear(self.cfg['embedding_dim'], tok_logits.size(-1)).to(self.device)
+
+
+                pred = self.prediction_head(attn_output[:, :-1, :]) ## (B, S-1, n_tokens)
+                target = tok_logits [:, 1:, :].detach().argmax(dim = -1)  ## (B, S-1)
                 loss_main = self.criterion(pred.reshape(-1, pred.size(-1)), target.reshape(-1))
 
                 if not hasattr(self, 'action_head'):
                     self.action_head = nn.Linear(self.cfg['embedding_dim'], int(actions.max())+1).to(self.device)
                 global_emb = enc.mean(dim=1)                     # (B, E)
                 logits_action = self.action_head(global_emb)     # (B, A)
-                loss_aux = self.crit(logits_action, yb)
+                loss_aux = self.criterion(logits_action, yb)
 
                 loss = loss_main + self.cfg.get('aux_weight', 0.5) * loss_aux
                 loss.backward(); self.opt.step()
 
                 with torch.no_grad():
                     acc = (logits_action.argmax(dim=1) == yb).float().mean().item() * 100.0
-                tr_loss += loss.item(); tr_acc += acc; n_b += 1
+                train_loss += loss.item(); train_acc += acc; num_batch += 1
 
-            tr_loss /= max(1, n_b); tr_acc /= max(1, n_b)
+            train_loss /= max(1, n_b); train_acc /= max(1, n_b)
 
             # Val
             self.tokenizer.eval(); self.attn.eval()
@@ -152,16 +157,17 @@ class TokenizationPipeline:
                     xb, yb = xb.to(self.device), yb.to(self.device)
                     tok_logits = self.tokenizer(xb)
                     enc = self.tokenizer.encode(xb)
-                    attn_out, attn_info = self.attn(enc, enc, enc)
-
-                    pred = tok_logits[:, :-1, :]
-                    tgt  = tok_logits[:, 1:, :].argmax(dim=-1)
-                    loss_main = self.crit(pred.reshape(-1, pred.size(-1)), tgt.reshape(-1))
+                    attn_output, attn_info = self.attn(enc, enc, enc)
+                    if not hasattr(self, 'prediction_head'):
+                        self.prediction_head = nn.Linear(self.cfg['embedding_dim'], tok_logits.size(-1)).to(self.device)
+                    pred = self.prediction_head(attn_output[:, :-1, :])
+                    tgt  = tok_logits[:, 1:, :].detach().argmax(dim=-1)
+                    loss_main = self.criterion(pred.reshape(-1, pred.size(-1)), tgt.reshape(-1))
 
                     if hasattr(self, 'action_head'):
                         global_emb = enc.mean(dim=1)
                         logits_action = self.action_head(global_emb)
-                        loss_aux = self.crit(logits_action, yb)
+                        loss_aux = self.criterion(logits_action, yb)
                         loss = loss_main + self.cfg.get('aux_weight', 0.5) * loss_aux
                         va_acc += (logits_action.argmax(dim=1) == yb).float().mean().item() * 100.0
                     else:
@@ -169,11 +175,11 @@ class TokenizationPipeline:
                     va_loss += loss.item(); n_b += 1
             va_loss /= max(1, n_b); va_acc /= max(1, n_b)
 
-            self.history['train_loss'].append(tr_loss)
+            self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(va_loss)
-            self.history['train_acc'].append(tr_acc)
+            self.history['train_acc'].append(train_acc)
             self.history['val_acc'].append(va_acc)
-            self.logger.info(f"[Tok] Epoch {ep+1}: Train {tr_loss:.4f}/{tr_acc:.2f}% | Val {va_loss:.4f}/{va_acc:.2f}%")
+            self.logger.info(f"[Tok] Epoch {ep+1}: Train {train_loss:.4f}/{train_acc:.2f}% | Val {va_loss:.4f}/{va_acc:.2f}%")
 
         self.is_trained = True
         return self.history

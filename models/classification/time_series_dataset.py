@@ -57,18 +57,18 @@ class TimeSeriesDataset(Dataset):
     def __getitem__(self, idx):
         start_idx, end_idx = self.idxs[idx]
         
-        xw = self.X[start_idx:end_idx].astype(np.float32).T  # (C, T)
+        xw = self.data[start_idx:end_idx].astype(np.float32).T  # (C, T)
 
         # majority vote label(s) inside the window
         if self.task == 'behavior':
-            yw = self.majority(self.y['behavior'][start_idx:end_idx])
+            yw = self.majority(self.labels['behavior'][start_idx:end_idx])
             y_out = torch.LongTensor([yw]).squeeze(0)
         elif self.task == 'gesture':
-            yw = self.majority(self.y['gesture'][start_idx:end_idx])
+            yw = self.majority(self.labels['gesture'][start_idx:end_idx])
             y_out = torch.LongTensor([yw]).squeeze(0)
         else:  # both
-            yb = self.majority(self.y['behavior'][start_idx:end_idx])
-            yg = self.majority(self.y['gesture'][start_idx:end_idx])
+            yb = self.majority(self.labels['behavior'][start_idx:end_idx])
+            yg = self.majority(self.labels['gesture'][start_idx:end_idx])
             y_out = (torch.LongTensor([yb]).squeeze(0),
                      torch.LongTensor([yg]).squeeze(0))
 

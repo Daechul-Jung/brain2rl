@@ -83,14 +83,14 @@ class ClassificationOnlyPipeline:
     def train(self, train_loader, val_loader, num_behave, num_gesture):
         task = self.config.get('task', 'both')
 
-        x_batch, y_batch = next(iter(train_loader))  ### (Batch size, Channel(number of sensors used), window_size)
+        x_batch, y_batch, _ = next(iter(train_loader))  ### (Batch size, Channel(number of sensors used), window_size)
         n_channels = x_batch.shape[1]
         n_times = x_batch.shape[2]
 
         self.model = ActionClassifier(n_channels=n_channels, n_times=n_times,
                                       n_behavior_classes=num_behave, n_gesture_classes=num_gesture, task=task, device=self.device)
         
-        self.optimizer = optim.AdamW(self.model.parameters(), lr=self.config['classifier_lr'])
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['classifier_lr'])
 
         history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
         best_val = 0
@@ -100,7 +100,7 @@ class ClassificationOnlyPipeline:
                 logits = outputs['behavior_logits']; y = targets
 
             elif task == 'gesture':
-                logits = outputs['gesture_logtis']; y = targets
+                logits = outputs['gesture_logits']; y = targets
             
             else :
                 logits = outputs['behavior_logits']; y = targets[0]
@@ -111,13 +111,17 @@ class ClassificationOnlyPipeline:
         for epoch in range(self.config['classifier_epochs']):
             self.model.train()
             train_loss, train_acc, n_batch = 0.0, 0.0, 0
-            for x_batch, y_batch in train_loader:
+            for batch in train_loader:
+                if len(batch) == 3:
+                    x_batch, y_batch, _ = batch
+                else:
+                    x_batch, y_batch = batch
                 x_batch = x_batch.to(self.device)
                 targets = self._extract_targets(y_batch, task)
 
                 self.optimizer.zero_grad()
                 outputs = self.model(x_batch)
-                loss = self._compute_loss(outputs, targets=targets)
+                loss = self._compute_loss(outputs, targets=targets, task= task)
                 loss.backward()
                 self.optimizer.step()
 
@@ -141,7 +145,7 @@ class ClassificationOnlyPipeline:
                     loss = self._compute_loss(outputs, targets, task)
 
                     val_loss += loss.item()
-                    val_acc += acc_from_logits(outputs, targets)
+                    val_acc += acc_from_logits(outputs, targets, task)
                     n_batch += 1
                 val_loss /= max(1, n_batch)
                 val_acc /= max(1, n_batch)
@@ -158,35 +162,45 @@ class ClassificationOnlyPipeline:
 
         return history
         
-    def evaluate_and_dump(self, test_loader: DataLoader, encoders, dump_dir = 'output/classifier'):
-        os.makedirs(dump_dir, exist_ok= True)
+    def evaluate_and_dump(self, test_loader: DataLoader, encoders, dump_dir='output/classifier'):
+        os.makedirs(dump_dir, exist_ok=True)
         task = self.config.get('task', 'both')
+        pool_k = self.config.get('pool_k', None)
         self.model.eval()
-        all_pred_behavior, all_pred_gesture, all_true_behavior, all_true_gesture = [], [], [], []
 
+        all_pred_behavior, all_pred_gesture = [], []
+        all_true_behavior, all_true_gesture = [], []
         all_tokens = []
 
         with torch.no_grad():
-            for x_batch, y_batch in test_loader:
+            for batch in test_loader:
+                if len(batch) == 3:
+                    x_batch, y_batch, _ = batch
+                else:
+                    x_batch, y_batch = batch
                 x_batch = x_batch.to(self.device)
-                outputs = self.model(x_batch, return_tokens =True)
-                token = outputs['tokens'].cpu().numpy()
-                all_tokens.append(token)
 
-                if task in ('behavior', 'both'):
-                    predicted_behavior = outputs['behavior_logits'].argmax(dim = 1).cpu().numpy()
-                    all_pred_behavior.append(predicted_behavior)
-                    all_true_behavior.append((y_batch[0] if task == 'both' else y_batch).numpy())
-                if task in ('gesture', 'both'):
-                    predicted_gesture = outputs['gesture_logits'].argmax(dim = 1).cpu().numpy()
-                    all_pred_gesture.append(predicted_gesture)
-                    all_true_gesture.append((y_batch[1] if task == 'both'else y_batch).numpy())
+                outputs = self.model(x_batch, return_tokens=True, pool_tokens_to=pool_k)
+                if 'tokens' in outputs:
+                    all_tokens.append(outputs['tokens'].cpu().numpy())
 
-        result = {'tokens': np.concatenate(all_tokens, axis=0)}
+                if task in ('behavior','both'):
+                    pb = outputs['behavior_logits'].argmax(dim=1).cpu().numpy()
+                    all_pred_behavior.append(pb)
+                    tb = (y_batch[0] if task=='both' else y_batch).cpu().numpy()
+                    all_true_behavior.append(tb)
+                if task in ('gesture','both'):
+                    pg = outputs['gesture_logits'].argmax(dim=1).cpu().numpy()
+                    all_pred_gesture.append(pg)
+                    tg = (y_batch[1] if task=='both' else y_batch).cpu().numpy()
+                    all_true_gesture.append(tg)
+
+        result = {}
+        if all_tokens:
+            result['tokens'] = np.concatenate(all_tokens, axis=0)  # (N, K, 128) when pool_k set
         if task in ('behavior','both'):
             result['pred_behavior'] = np.concatenate(all_pred_behavior, axis=0)
             result['true_behavior'] = np.concatenate(all_true_behavior, axis=0)
-            # decode to strings for convenience
             result['pred_behavior_str'] = encoders['behavior'].inverse_transform(result['pred_behavior'])
             result['true_behavior_str'] = encoders['behavior'].inverse_transform(result['true_behavior'])
         if task in ('gesture','both'):
@@ -197,7 +211,6 @@ class ClassificationOnlyPipeline:
 
         np.savez(os.path.join(dump_dir, 'test_predictions_and_tokens.npz'), **result)
         self.logger.info(f"Saved predictions + tokens to {dump_dir}")
-
         return result
     
     def print_subject_predictions(self, test_csv: str, subject_id: str):
@@ -307,35 +320,80 @@ class ClassificationOnlyPipeline:
         return save_path
     
     def run(self, train_csv, test_csv, output_dir='output'):
-        X_train_raw, y_train_str, group_train, df = load_sensor_data(train_csv, group_by='sequence_id')
+        # 1) load & preprocess
+        X_train_raw, y_train_str, group_train, df_tr = load_sensor_data(train_csv, group_by='sequence_id')
         X_train, y_train, self.scaler, self.encoders = preprocess_multilabel(X_train_raw, y_train_str)
 
-        train_loader, val_loader = create_train_val_loaders(
-            X_train=X_train, y_train_enc=y_train, groups_train=group_train, 
-            window_size=self.config['window_size'],
-            batch_size=self.config['batch_size'],
-            overlap=0.5, task= self.config.get('task', 'both')
+        # ---- choose training mode ----
+        train_mode = self.config.get('train_mode', 'segments')  # 'segments' or 'windows'
+        task = self.config.get('task', 'both')
+
+        if train_mode == 'windows':
+            # original windowed loaders (but group-aware inside your util)
+            train_loader, val_loader = create_train_val_loaders(
+                X_train=X_train, y_train_enc=y_train, groups_train=group_train,
+                window_size=self.config['window_size'],
+                batch_size=self.config['batch_size'],
+                overlap=0.5, task=task
             )
-        
+        else:
+            # --- SEGMENT MODE: build contiguous segments and split by groups ---
+            use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior_gesture')
+            segs_all = contiguous_segments(group_train.astype(str),
+                                        y_train['behavior'],
+                                        y_train['gesture'] if use_gesture_for_seg else None)
+
+            # split by unique groups (e.g., sequence_id) to avoid leakage
+            uniq_groups = np.array(sorted(set(group_train.astype(str))))
+            gss = GroupShuffleSplit(test_size=0.2, random_state=42)
+            g_tr_idx, g_va_idx = next(gss.split(uniq_groups, groups=uniq_groups))
+            train_groups = set(uniq_groups[g_tr_idx]); val_groups = set(uniq_groups[g_va_idx])
+
+            segs_tr = [s for s in segs_all if s[2] in train_groups]
+            segs_va = [s for s in segs_all if s[2] in val_groups]
+
+            ds_tr = SegmentDataset(X_train, y_train, group_train, segs_tr, task=task)
+            ds_va = SegmentDataset(X_train, y_train, group_train, segs_va, task=task)
+
+            train_loader = DataLoader(ds_tr, batch_size=self.config['batch_size'],
+                                    shuffle=True, collate_fn=lambda b: pad_collate(b, task=task))
+            val_loader   = DataLoader(ds_va, batch_size=self.config['batch_size'],
+                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=task))
+
         num_behave = len(self.encoders['behavior'].classes_)
         num_gesture = len(self.encoders['gesture'].classes_)
-        print(f'num behavior: {num_behave} and num gesture: {num_gesture}')
+        self.logger.info(f'num behavior: {num_behave} and num gesture: {num_gesture}')
         history = self.train(train_loader, val_loader, num_behave, num_gesture)
 
-        save_preprocessing_info(self.scaler, self.encoders, os.path.join(output_dir, 'classifier', 'preproc.pkl'))
+        save_preprocessing_info(self.scaler, self.encoders,
+                                os.path.join(output_dir, 'classifier', 'preproc.pkl'))
 
-        x_test_raw, y_test_str, group_test, _ = load_sensor_data(test_csv, group_by='sequence_id')
-        X_test = self.scaler.transform(x_test_raw)
-        y_test = {k : self.encoders[k].transform(y_test_str[k]) for k in ['behavior', 'gesture']}
+        # 2) test
+        X_test_raw, y_test_str, group_test, _ = load_sensor_data(test_csv, group_by='sequence_id')
+        X_test = self.scaler.transform(X_test_raw)
+        y_test = {k: self.encoders[k].transform(y_test_str[k]) for k in ['behavior','gesture']}
 
-        test_loader = create_test_loader(X_test=X_test, y_test_enc=y_test,
-                                         window_size=self.config['window_size'],
-                                         batch_size=self.config['batch_size'],
-                                         overlap=0.5, task = self.config.get('task', 'both'))
-        
-        preds = self.evaluate_and_dump(test_loader=test_loader, encoders=self.encoders, dump_dir=os.path.join(output_dir,'classifier'))
+        if train_mode == 'windows':
+            test_loader = create_test_loader(
+                X_test=X_test, y_test_enc=y_test,
+                window_size=self.config['window_size'],
+                batch_size=self.config['batch_size'],
+                overlap=0.5, task=task
+            )
+        else:
+            # segment test loader
+            use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior_gesture')
+            segs_te = contiguous_segments(group_test.astype(str),
+                                        y_test['behavior'],
+                                        y_test['gesture'] if use_gesture_for_seg else None)
+            ds_te = SegmentDataset(X_test, y_test, group_test, segs_te, task=task)
+            test_loader = DataLoader(ds_te, batch_size=self.config['batch_size'],
+                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=task))
 
+        preds = self.evaluate_and_dump(test_loader=test_loader, encoders=self.encoders,
+                                    dump_dir=os.path.join(output_dir,'classifier'))
         return {'history': history, 'preds': preds}
+    
 
     def plot_training_history(self, history: Dict[str, List[float]], save_path: str):
         """Plot training history"""
@@ -376,6 +434,9 @@ def create_classification_config() -> Dict[str, Any]:
         'classifier_epochs': 500,
         'classifier_dropout': 0.1,
         'task': 'both', 
+        'train_mode': 'segments',    # <-- default to SEGMENTS
+        'pool_k': 16,                # <-- fixed number of tokens per segment for training & eval
+        'segment_by': 'behavior',
     }
 def main():
     import argparse
@@ -388,12 +449,21 @@ def main():
                         help='Export fixed-K tokens per action segment')
     parser.add_argument('--export-from', choices=['train','test'], default='test',
                         help='Which split CSV to export from')
-    parser.add_argument('--pool-k', type=int, default=16,
-                        help='Number of tokens per segment after pooling')
-    parser.add_argument('--segment-by', choices=['behavior','behavior_gesture'], default='behavior')
+    parser.add_argument('--segment-by', choices=['behavior','gesture'], default='behavior')
     parser.add_argument('--group-key', default='sequence_id',
                         help="Group boundary key for segments (e.g., 'sequence_id' or 'subject')")
+    parser.add_argument('--train-mode', choices=['segments','windows'], default='segments',
+                        help='Train on contiguous action segments (variable length) or fixed windows')
+    parser.add_argument('--pool-k', type=int, default=16,
+                        help='Fixed number of tokens per segment after pooling (segments mode)')
     args = parser.parse_args()
+
+    # ...
+    cfg = create_classification_config()
+    cfg['train_mode'] = args.train_mode
+    cfg['pool_k'] = args.pool_k
+    cfg['segment_by'] = args.segment_by
+    # args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
     cfg = create_classification_config()
