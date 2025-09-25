@@ -327,11 +327,11 @@ class ClassificationOnlyPipeline:
         X_train_raw, y_train_str, group_train, df_tr = load_sensor_data(train_csv, group_by='sequence_id')
         X_train, y_train, self.scaler, self.encoders = preprocess_multilabel(X_train_raw, y_train_str)
         print(f'y_train after process multi_label: {y_train}')
-        # ---- choose training mode ----
+        # choose training mode 
         train_mode = self.config.get('train_mode', 'segments')  # 'segments' or 'windows'
         
         if train_mode == 'windows':
-            # original windowed loaders (but group-aware inside your util)
+            # original windowed loaders 
             train_loader, val_loader = create_train_val_loaders(
                 X_train=X_train, y_train_enc=y_train, groups_train=group_train,
                 window_size=self.config['window_size'],
@@ -345,7 +345,7 @@ class ClassificationOnlyPipeline:
                                         y_train['behavior'],
                                         y_train['gesture'] if use_gesture_for_seg else None)
 
-            # split by unique groups (e.g., sequence_id) to avoid leakage
+            # split by unique groups to avoid leakage
             uniq_groups = np.array(sorted(set(group_train.astype(str))))
             gss = GroupShuffleSplit(test_size=0.2, random_state=42)
             g_tr_idx, g_va_idx = next(gss.split(uniq_groups, groups=uniq_groups))
@@ -359,7 +359,7 @@ class ClassificationOnlyPipeline:
 
             train_loader = DataLoader(ds_tr, batch_size=self.config['batch_size'],
                                     shuffle=True, collate_fn=lambda b: pad_collate(b, task=self.task))
-            val_loader   = DataLoader(ds_va, batch_size=self.config['batch_size'],
+            val_loader = DataLoader(ds_va, batch_size=self.config['batch_size'],
                                     shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
 
         num_behave = len(self.encoders['behavior'].classes_)
@@ -370,7 +370,6 @@ class ClassificationOnlyPipeline:
         save_preprocessing_info(self.scaler, self.encoders,
                                 os.path.join(output_dir, 'classifier', 'preproc.pkl'))
 
-        # 2) test
         X_test_raw, y_test_str, group_test, _ = load_sensor_data(test_csv, group_by='sequence_id')
         X_test = self.scaler.transform(X_test_raw)
         y_test = {k: self.encoders[k].transform(y_test_str[k]) for k in ['behavior','gesture']}
@@ -440,6 +439,8 @@ def create_classification_config() -> Dict[str, Any]:
         'pool_k': 16,               
         'segment_by': 'behavior',
     }
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
