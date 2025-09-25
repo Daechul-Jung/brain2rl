@@ -330,7 +330,6 @@ class ClassificationOnlyPipeline:
         # ---- choose training mode ----
         train_mode = self.config.get('train_mode', 'segments')  # 'segments' or 'windows'
         
-
         if train_mode == 'windows':
             # original windowed loaders (but group-aware inside your util)
             train_loader, val_loader = create_train_val_loaders(
@@ -341,7 +340,7 @@ class ClassificationOnlyPipeline:
             )
         else:
             # --- SEGMENT MODE: build contiguous segments and split by groups ---
-            use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior_gesture')
+            use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior')
             segs_all = contiguous_segments(group_train.astype(str),
                                         y_train['behavior'],
                                         y_train['gesture'] if use_gesture_for_seg else None)
@@ -434,7 +433,7 @@ def create_classification_config() -> Dict[str, Any]:
         'window_size': 100,
         'batch_size': 128,
         'classifier_lr': 1e-3,
-        'classifier_epochs': 500,
+        'classifier_epochs': 300,
         'classifier_dropout': 0.1,
         'task': 'behavior', 
         'train_mode': 'segments', 
@@ -445,7 +444,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-csv', required=True)
-    parser.add_argument('--test-csv', required=True)
+    parser.add_argument('--test-csv', help='Optional. If omitted and --split-train is set, we split train.csv into train/val/test.')
     parser.add_argument('--subject-print', help='Subject ID from test.csv to print per-window predictions')
     parser.add_argument('--output-dir', default='output')
     parser.add_argument('--export-segment-tokens', action='store_true',
@@ -461,7 +460,6 @@ def main():
                         help='Fixed number of tokens per segment after pooling (segments mode)')
     args = parser.parse_args()
 
-    # ...
     cfg = create_classification_config()
     cfg['train_mode'] = args.train_mode
     cfg['pool_k'] = args.pool_k
