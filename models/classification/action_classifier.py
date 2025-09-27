@@ -20,11 +20,11 @@ class ActionClassifier(nn.Module):
         self.task = task
         self.device = device
         self.trunk = nn.Sequential(
-            nn.Conv1d(n_channels, 32, kernel_size=7, stride=2, padding=3),
-            nn.BatchNorm1d(32), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
-            nn.Conv1d(32, 64, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm1d(64), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
-            nn.Conv1d(64,128, kernel_size=5, stride=1, padding=2),
+            nn.Conv1d(n_channels, n_channels * 2, kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm1d(n_channels * 2), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
+            nn.Conv1d(n_channels * 2, n_channels * 2, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm1d(n_channels * 2), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
+            nn.Conv1d(n_channels * 2, 128, kernel_size=5, stride=1, padding=2),
             nn.BatchNorm1d(128), nn.ReLU(), nn.MaxPool1d(3,2,1), nn.Dropout(dropout_rate),
         ).to(self.device)
 
@@ -37,7 +37,7 @@ class ActionClassifier(nn.Module):
         self.gesture_head  = nn.Linear(128, n_gesture_classes).to(self.device)
 
     def forward(self, x, return_tokens: bool = False, pool_tokens_to: int | None = None):
-        # x: (B, C, T)
+        # x: (B, C, T) (batch size, channels, time steps)
         h = self.trunk(x)                     # (B, 128, T')
         if pool_tokens_to is not None:
             h = torch.nn.functional.adaptive_avg_pool1d(h, pool_tokens_to)
@@ -46,10 +46,10 @@ class ActionClassifier(nn.Module):
                 h = torch.nn.functional.adaptive_avg_pool1d(h, self.time_after_pool)
 
         # tokens = projected per-timestep features
-        tokens = self.proj(h.transpose(1,2))  # (B, T', 128)
+        tokens = self.proj(h.transpose(1,2))  # h.T(B, T', 128) @ (128, 128) -> (B, T', 128)
 
         # global representation for classification
-        glob = tokens.mean(dim=1)             # (B, 128)
+        glob = tokens.mean(dim=1)             # (B, 128) Take mean over time dimension
 
         out = {}
         if self.task in ('behavior','both'):
@@ -73,10 +73,11 @@ class ActionClassifier(nn.Module):
     def tokens_from_raw(self, x, pool_tokens_to: int | None = None ):
         """
         return per-sequence tokens with optional pooling to fixed K
+        Pooling over the time series length dimension
         """
         h = self.trunk(x) ## (B, 128, T')
         if pool_tokens_to is not None:
-            h = torch.nn.functional.adaptive_avg_pool1d(h, pool_tokens_to)
-        return self.proj(h.transpose(1, 2))  # (B, K or T', 128)
+            h = torch.nn.functional.adaptive_avg_pool1d(h, pool_tokens_to) ## (B, 128, K)
+        return self.proj(h.transpose(1, 2))  # (B, K, 128)
 
 

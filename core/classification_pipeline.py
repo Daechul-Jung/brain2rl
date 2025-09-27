@@ -59,6 +59,15 @@ class ClassificationOnlyPipeline:
         return logger
     
     def _compute_loss(self, outputs, targets):
+        """
+        Compute loass based on task type
+        Args:
+            outputs (torch.Tensor): model outputs
+            targets (torch.Tensor): ground truth labels 
+
+        Returns:
+            loss: total loss for the batch
+        """
         if self.task == 'behavior':
             return self.criterion(outputs['behavior_logits'], targets)
         
@@ -80,7 +89,17 @@ class ClassificationOnlyPipeline:
     
     
     def train(self, train_loader, val_loader, num_behave, num_gesture):
-        
+        """
+
+        Args:
+            train_loader (DataLoader): train dataloader
+            val_loader (DataLoader): validation dataloader
+            num_behave (int): number of behavior classes
+            num_gesture (int): number of gesture classes
+
+        Returns:
+            history(Dict): history of training and validation loss and accuracy
+        """
 
         x_batch, y_batch, _ = next(iter(train_loader))  ### (Batch size, Channel(number of sensors used), window_size)
         n_channels = x_batch.shape[1]
@@ -94,7 +113,11 @@ class ClassificationOnlyPipeline:
         history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
         best_val = 0
 
+
         def acc_from_logits(outputs, targets):
+            """
+            Compute accuracy from model outputs and targets based on task type
+            """
             if self.task == 'behavior':
                 logits = outputs['behavior_logits']; y = targets
 
@@ -242,6 +265,8 @@ class ClassificationOnlyPipeline:
             btxt = beh[i] if beh is not None else "-"
             gtxt = ges[i] if ges is not None else "-"
             print(f"[win {i:04d}] behavior={btxt}  gesture={gtxt}")
+            
+            
     @torch.no_grad()
     def export_segment_tokens(self, csv_path: str, save_dir: str,
                               pool_k: int =16, 
@@ -265,7 +290,6 @@ class ClassificationOnlyPipeline:
         subjects = df['subject'].astype(str).values
         seq_ids  = df[group_key].astype(str).values
 
-        # 2) Build segments
         use_gesture = (segment_by == 'behavior_gesture')
         segs = contiguous_segments(group_vals, y_enc['behavior'], y_enc['gesture'] if use_gesture else None)
         if not segs:
@@ -436,7 +460,7 @@ def create_classification_config() -> Dict[str, Any]:
         'classifier_dropout': 0.1,
         'task': 'behavior', 
         'train_mode': 'segments', 
-        'pool_k': 16,               
+        'pool_k': 10,               
         'segment_by': 'behavior',
     }
 
