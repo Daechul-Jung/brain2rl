@@ -15,11 +15,11 @@ class ResBlock(nn.Module):
     def __init__(self, input_channel, output_channel, time_dim, cond_dim = 0):
         super().__init__()
         ### Different convolution block from 2
-        self.norm1 = nn.GroupNorm(input_channel, input_channel) ## Applies group normalization over a mini-batch, similar to batch norm
+        self.norm1 = nn.GroupNorm(32, input_channel) ## Applies group normalization over a mini-batch, similar to batch norm, first argument I used input channel, but it occurs error. so I replace to 32
         self.activ1 = SiLU()
-        self.conv1 = nn.Conv2d(in_channels=input_channel, output_channel=output_channel, kernel_size=3, padding= 1) ## Based on the kernel size sum of the h + w would not be changed but their values are slightly changed 
+        self.conv1 = nn.Conv2d(input_channel, output_channel, kernel_size=3, padding= 1) ## Based on the kernel size sum of the h + w would not be changed but their values are slightly changed 
 
-        self.norm2 = nn.GroupNorm(input_channel, output_channel)
+        self.norm2 = nn.GroupNorm(32, output_channel) ## first argument I used input channel, but it occurs error. so I replace to 32
         self.activ2 = SiLU()
         self.conv2 = nn.Conv2d(output_channel, output_channel, 3, padding= 1)
 
@@ -40,7 +40,7 @@ class ResBlock(nn.Module):
     
 
 class SelfAttention2d(nn.Module):
-    def __init__(self, channels, num_heads):
+    def __init__(self, channels, num_heads = 4):
         """
         Attention model for 2d input
         """
