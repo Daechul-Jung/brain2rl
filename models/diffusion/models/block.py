@@ -35,7 +35,7 @@ class ResBlock(nn.Module):
         h = self.conv1(self.activ1(self.norm1(x))) ## normalize -> activation -> convolution
         emb = time_emb if cond_emb is None else torch.cat([time_emb, cond_emb], dim = -1) ## Concatenate time and condition embedding 
         h = h + self.emb(emb)[:, :, None, None] ## embedding and largening the dimensions and adding with the normalized input
-        h = self.conv2(self.activ2(self.norm2)) ## Same process as first h
+        h = self.conv2(self.activ2(self.norm2(h))) ## Same process as first h
         return h + self.short(x)
     
 
@@ -57,9 +57,9 @@ class SelfAttention2d(nn.Module):
 
         q = self.q(x).view(b, self.num_heads, c // self.num_heads, h * w) ### convert (b, c, h, w) -> (b, c, h, w) -> (b, num_heads, channel // num_heads, h * w)
         v = self.v(x).view(b, self.num_heads, c // self.num_heads, h * w) 
-        k = self.k(x).view(b, self.num_heads, c // self.num_heads, h * 2)
+        k = self.k(x).view(b, self.num_heads, c // self.num_heads, h * w)
 
-        attn = torch.softmax((q.transpose(-2, -1))/ math.sqrt(c // self.num_heads), dim= -1)
+        attn = torch.softmax((q.transpose(-2, -1) @ k)/ math.sqrt(c // self.num_heads), dim= -1)  ### (b, c, w, h) @ (b, c, h, w) = (b, c, w, w)
         out = (attn @ v.transpose(-2, -1)).transpose(-2, -1)
         out = out.reshape(b, c, h, w)
         return self.proj(out) + x
@@ -75,7 +75,7 @@ class Down(nn.Module):
         self.attn = SelfAttention2d(output_channel) if use_attn else nn.Identity()
         self.pool = nn.Conv2d(output_channel, output_channel, kernel_size=3, stride = 2, padding=1)
 
-    def forward(self, x, skip, time_emb, cond_emb = None):
+    def forward(self, x, time_emb, cond_emb = None):
         x = self.res1(x, time_emb, cond_emb) 
         x = self.res2(x, time_emb, cond_emb)
         x = self.attn(x)
@@ -87,14 +87,16 @@ class Up(nn.Module):
     """
     Up sampling for UNet Denoiser
     """
-    def __init__(self, input_channel, output_channel, time_dim, cond_dim = 0, use_attn = False):
+    def __init__(self, input_channel, skip_channel, output_channel, time_dim, cond_dim = 0, use_attn = False):
         super().__init__()
-        self.res1 = ResBlock(input_channel + output_channel, output_channel, time_dim, cond_dim)
+        self.res1 = ResBlock(input_channel + skip_channel, output_channel, time_dim, cond_dim)
         self.res2 = ResBlock(output_channel, output_channel, time_dim, cond_dim)
         self.attn = SelfAttention2d(output_channel) if use_attn else nn.Identity()
         self.upsample = nn.ConvTranspose2d(output_channel, output_channel, kernel_size=4, stride=2, padding=1)
 
     def forward(self, x, skip, time_emb, cond_emb = None):
+        if x.shape[-2:] != skip.shape[-2:]:
+            x = F.interpolate(x, size=skip.shape[-2:], mode="nearest")
         x = torch.cat([x, skip], dim = 1)
         x = self.res1(x, time_emb, cond_emb)
         x = self.res2(x, time_emb, cond_emb)

@@ -15,7 +15,6 @@ class UNetDenoiser(nn.Module):
         self.cond_proj = nn.Sequential(nn.Linear(cond_dim, cond_dim), nn.SiLU()) if cond_dim > 0 else None
 
         self.in_conv = nn.Conv2d(in_channels, base, kernel_size=3, padding= 1)
-
         self.down1 = Down(base, base, time_dim, cond_dim, use_attn=(32 in attn_res))
         self.down2 = Down(base, base*2, time_dim=time_dim, cond_dim=cond_dim, use_attn=(16 in attn_res))
         self.down3 = Down(base*2, base*2, time_dim=time_dim, cond_dim=cond_dim, use_attn=(8 in attn_res))
@@ -24,17 +23,17 @@ class UNetDenoiser(nn.Module):
         self.mid_attn = SelfAttention2d(base*2)
         self.mid2 = ResBlock(base*2, base*2, time_dim, cond_dim)
 
-        self.up3 = Up(base*2, base*2, time_dim, cond_dim)
-        self.up2 = Up(base*2, base, time_dim, cond_dim)
-        self.up1 = Up(base, base, time_dim, cond_dim)
+        self.up3 = Up(base*2, skip_channel=base*2, output_channel=base*2, time_dim = time_dim, cond_dim=cond_dim, use_attn=(8 in attn_res))
+        self.up2 = Up(base*2, skip_channel=base*2, output_channel= base, time_dim= time_dim, cond_dim= cond_dim, use_attn=(16 in attn_res))
+        self.up1 = Up(base, skip_channel=base, output_channel=base, time_dim=time_dim, cond_dim=cond_dim, use_attn= (32 in attn_res))
 
         self.out_norm = nn.GroupNorm(32, base)
         self.out_act = SiLU()
         self.out_conv = nn.Conv2d(base, in_channels, kernel_size=3, padding = 1)
 
     def forward(self, x, t: torch.LongTensor, cond : Optional[torch.Tensor] = None):
-        time_emb = self.time_mlp(timestep_embedding(t, self.time_mlp[0].in_features))
-        cond_emb = self.cond_proj(cond) if (self.cond_proj is not None and cond is not None) else None 
+        time_emb = self.time_mlp(timestep_embedding(t, self.time_mlp[0].in_features))  ## shape of (128, 256)
+        cond_emb = self.cond_proj(cond) if (self.cond_proj is not None and cond is not None) else None  # None
 
         x = self.in_conv(x)
 
