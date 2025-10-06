@@ -15,8 +15,6 @@ def save_samples(x: torch.Tensor, out: Path, nrow: int = 8):
     save_image(x, str(out), nrow=nrow)
 
 
-
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", type=str, default="runs/last.pt")

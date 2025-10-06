@@ -316,8 +316,7 @@ class ClassificationOnlyPipeline:
         ges_ids = np.array(ges_ids, dtype=np.int64)
         seg_len = np.array(seg_len, dtype=np.int32)
 
-        # 4) Prototypes per behavior (mean over time then mean over segments)
-        seg_emb = tokens.mean(axis=1)                   # (N_segments, 128)
+        seg_emb = tokens.mean(axis=1)                   # (N_segments, 128)  Token length is 128
         nB = len(self.encoders['behavior'].classes_)
         beh_proto = np.zeros((nB, 128), dtype=np.float32)
         for b in range(nB):
@@ -350,7 +349,6 @@ class ClassificationOnlyPipeline:
         # load and preprocess
         X_train_raw, y_train_str, group_train, df_tr = load_sensor_data(train_csv, group_by='sequence_id')
         X_train, y_train, self.scaler, self.encoders = preprocess_multilabel(X_train_raw, y_train_str)
-        print(f'y_train after process multi_label: {y_train}')
         # choose training mode 
         train_mode = self.config.get('train_mode', 'segments')  # 'segments' or 'windows'
         
@@ -363,29 +361,45 @@ class ClassificationOnlyPipeline:
                 overlap=0.5, task=self.task
             )
         else:
-            # --- SEGMENT MODE: build contiguous segments and split by groups ---
+            # --- segment mode as default: build contiguous segments and split by groups ---
             use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior')
             segs_all = contiguous_segments(group_train.astype(str),
                                         y_train['behavior'],
                                         y_train['gesture'] if use_gesture_for_seg else None)
 
             # split by unique groups to avoid leakage
-            uniq_groups = np.array(sorted(set(group_train.astype(str))))
-            gss = GroupShuffleSplit(test_size=0.2, random_state=42)
-            g_tr_idx, g_va_idx = next(gss.split(uniq_groups, groups=uniq_groups))
-            train_groups = set(uniq_groups[g_tr_idx]); val_groups = set(uniq_groups[g_va_idx])
+            train_groups, valid_groups, test_groups = split_groups_train_val_test(group_train)
 
             segs_tr = [s for s in segs_all if s[2] in train_groups]
-            segs_va = [s for s in segs_all if s[2] in val_groups]
-
+            segs_val = [s for s in segs_all if s[2] in valid_groups]
+            segs_test = [s for s in segs_all if s[2] in test_groups]
             ds_tr = SegmentDataset(X_train, y_train, group_train, segs_tr, task=self.task)
-            ds_va = SegmentDataset(X_train, y_train, group_train, segs_va, task=self.task)
+            ds_va = SegmentDataset(X_train, y_train, group_train, segs_val, task=self.task)
+            ds_te = SegmentDataset(X_train, y_train, group_train, segs_test, task=self.task)
 
             train_loader = DataLoader(ds_tr, batch_size=self.config['batch_size'],
                                     shuffle=True, collate_fn=lambda b: pad_collate(b, task=self.task))
             val_loader = DataLoader(ds_va, batch_size=self.config['batch_size'],
                                     shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
+            test_loader = DataLoader(ds_te, batch_size=self.config['batch_size'],
+                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
+            #-------------------------------------------------------------------------------
+            # uniq_groups = np.array(sorted(set(group_train.astype(str))))
+            # gss = GroupShuffleSplit(test_size=0.2, random_state=42)
+            # g_tr_idx, g_va_idx = next(gss.split(uniq_groups, groups=uniq_groups))
+            # train_groups = set(uniq_groups[g_tr_idx]); val_groups = set(uniq_groups[g_va_idx])
 
+            # segs_tr = [s for s in segs_all if s[2] in train_groups]
+            # segs_va = [s for s in segs_all if s[2] in val_groups]
+
+            # ds_tr = SegmentDataset(X_train, y_train, group_train, segs_tr, task=self.task)
+            # ds_va = SegmentDataset(X_train, y_train, group_train, segs_va, task=self.task)
+
+            # train_loader = DataLoader(ds_tr, batch_size=self.config['batch_size'],
+            #                         shuffle=True, collate_fn=lambda b: pad_collate(b, task=self.task))
+            # val_loader = DataLoader(ds_va, batch_size=self.config['batch_size'],
+            #                         shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
+            #-------------------------------------------------------------------------------
         num_behave = len(self.encoders['behavior'].classes_)
         num_gesture = len(self.encoders['gesture'].classes_)
         self.logger.info(f'num behavior: {num_behave} and num gesture: {num_gesture}')
@@ -394,29 +408,30 @@ class ClassificationOnlyPipeline:
         save_preprocessing_info(self.scaler, self.encoders,
                                 os.path.join(output_dir, 'classifier', 'preproc.pkl'))
 
-        X_test_raw, y_test_str, group_test, _ = load_sensor_data(test_csv, group_by='sequence_id')
-        X_test = self.scaler.transform(X_test_raw)
-        y_test = {k: self.encoders[k].transform(y_test_str[k]) for k in ['behavior','gesture']}
+        # X_test_raw, y_test_str, group_test, _ = load_sensor_data(test_csv, group_by='sequence_id')
+        # X_test = self.scaler.transform(X_test_raw)
+        # y_test = {k: self.encoders[k].transform(y_test_str[k]) for k in ['behavior','gesture']}
 
-        if train_mode == 'windows':
-            test_loader = create_test_loader(
-                X_test=X_test, y_test_enc=y_test,
-                window_size=self.config['window_size'],
-                batch_size=self.config['batch_size'],
-                overlap=0.5, task=self.task
-            )
-        else:
-            # segment test loader
-            use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior_gesture')
-            segs_te = contiguous_segments(group_test.astype(str),
-                                        y_test['behavior'],
-                                        y_test['gesture'] if use_gesture_for_seg else None)
-            ds_te = SegmentDataset(X_test, y_test, group_test, segs_te, task=self.task)
-            test_loader = DataLoader(ds_te, batch_size=self.config['batch_size'],
-                                    shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
+        # if train_mode == 'windows':
+        #     test_loader = create_test_loader(
+        #         X_test=X_test, y_test_enc=y_test,
+        #         window_size=self.config['window_size'],
+        #         batch_size=self.config['batch_size'],
+        #         overlap=0.5, task=self.task
+        #     )
+        # else:
+        #     # segment test loader
+        #     use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior_gesture')
+        #     segs_te = contiguous_segments(group_test.astype(str),
+        #                                 y_test['behavior'],
+        #                                 y_test['gesture'] if use_gesture_for_seg else None)
+        #     ds_te = SegmentDataset(X_test, y_test, group_test, segs_te, task=self.task)
+        #     test_loader = DataLoader(ds_te, batch_size=self.config['batch_size'],
+        #                             shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
 
         preds = self.evaluate_and_dump(test_loader=test_loader, encoders=self.encoders,
                                     dump_dir=os.path.join(output_dir,'classifier'))
+        self.plot_training_history(history, os.path.join(output_dir, 'history_plot'))
         return {'history': history, 'preds': preds}
     
 
@@ -478,7 +493,7 @@ def main():
                         help='Which split CSV to export from')
     parser.add_argument('--segment-by', choices=['behavior','gesture'], default='behavior')
     parser.add_argument('--group-key', default='sequence_id',
-                        help="Group boundary key for segments (e.g., 'sequence_id' or 'subject')")
+                        help="Group boundary key for segments")
     parser.add_argument('--train-mode', choices=['segments','windows'], default='segments',
                         help='Train on contiguous action segments (variable length) or fixed windows')
     parser.add_argument('--pool-k', type=int, default=16,
@@ -496,7 +511,6 @@ def main():
     pipe = ClassificationOnlyPipeline(cfg)
     res = pipe.run(args.train_csv, args.test_csv, output_dir=args.output_dir)
 
-
     if args.export_segment_tokens:
         csv_src = args.train_csv if args.export_from == 'train' else args.test_csv
         pipe.export_segment_tokens(
@@ -509,9 +523,8 @@ def main():
     if args.subject_print:
         pipe.print_subject_predictions(args.test_csv, args.subject_print)
 
-    print("\n Done. Files:")
-    print(" - Best classifier: output/classifier/best_classifier.pth")
-    print(" - Test preds & tokens: output/classifier/test_predictions_and_tokens.npz")
+    print("Best classifier: output/classifier/best_classifier.pth")
+    print("Test preds & tokens: output/classifier/test_predictions_and_tokens.npz")
 
 if __name__ == '__main__':
     main()

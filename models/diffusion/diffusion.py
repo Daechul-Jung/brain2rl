@@ -37,7 +37,7 @@ class Diffusion:
     def sample_ddpm(self, model: nn.Module, shape: Tuple[int, int, int, int], cond: Optional[torch.Tensor]= None,
                     cfg_scale: float = 1.0):
         x = torch.randn(shape, device = self.device)
-        for i in reversed(self.T):
+        for i in reversed(self.T, -1, -1, -1):
             t = torch.full((shape[0], ), i, device=self.device, dtype=torch.long)
             eps = self._predict_eps(model, x, t, cond, cfg_scale)
             alpha_t = self.alphas[i]

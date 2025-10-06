@@ -4,7 +4,6 @@ import torch
 from sklearn.model_selection import GroupShuffleSplit
 from torch.utils.data import Dataset, DataLoader
 
-# ---- variable-length segment dataset (per contiguous action) ----
 class SegmentDataset(Dataset):
     """
     Yields variable-length segments as (C, T), with labels.
