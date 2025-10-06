@@ -239,32 +239,31 @@ class ClassificationOnlyPipeline:
         self.logger.info(f"Saved predictions + tokens to {dump_dir}")
         return result
     
-    def print_subject_predictions(self, test_csv: str, subject_id: str):
+    def print_subject_predictions(self, test_csv: str, subject_id: str, test_loader: DataLoader):
         """
         Load test.csv subset for a subject, run the classifier, and print per-window predicted actions.
         """
-        X_raw, y_raw, groups, df = load_sensor_data(test_csv, subjects=[subject_id], group_by="sequence_id")
+        X_raw, y_raw, groups, df = load_sensor_data(test_csv, subject_ids=[subject_id], group_by="sequence_id")
         # transform with train scaler/encoders
         X = self.scaler.transform(X_raw)
         y_enc = {k: self.encoders[k].transform(y_raw[k]) for k in ['behavior','gesture']}
 
-        loader = create_test_loader(
-            X, y_enc,
-            window_size=self.config['window_size'],
-            batch_size=self.config['batch_size'],
-            overlap=0.5, task=self.config.get('task','both')
-        )
-
+        # loader = create_test_loader(
+        #     X, y_enc,
+        #     window_size=self.config['window_size'],
+        #     batch_size=self.config['batch_size'],
+        #     overlap=0.5, task=self.config.get('task','both')
+        # )
+        loader = test_loader
         preds = self.evaluate_and_dump(loader, self.encoders)  # reuse forward pass
 
         # Print nicely
         beh = preds.get('pred_behavior_str')
         ges = preds.get('pred_gesture_str')
-        print(f"\n=== Predictions for subject {subject_id} (windowed) ===")
+        print(f"\n=== Predictions for subject {subject_id} (segmented) ===")
         for i in range(len(beh) if beh is not None else len(ges)):
             btxt = beh[i] if beh is not None else "-"
-            gtxt = ges[i] if ges is not None else "-"
-            print(f"[win {i:04d}] behavior={btxt}  gesture={gtxt}")
+            print(f"[win {i:04d}] behavior={btxt}")
             
             
     @torch.no_grad()
@@ -338,7 +337,7 @@ class ClassificationOnlyPipeline:
             'behavior_prototypes': beh_proto,           # (n_behavior,128)
             'pool_k': np.int32(pool_k)
         }
-
+        print('token shape: ',out['tokens'].shape)
         save_path = os.path.join(save_dir, f'segment_tokens_K{pool_k}.npz')
         np.savez(save_path, **out)
         self.logger.info(f"Saved segment tokens to {save_path} "
@@ -362,7 +361,7 @@ class ClassificationOnlyPipeline:
             )
         else:
             # --- segment mode as default: build contiguous segments and split by groups ---
-            use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior')
+            use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'gesture')
             segs_all = contiguous_segments(group_train.astype(str),
                                         y_train['behavior'],
                                         y_train['gesture'] if use_gesture_for_seg else None)
@@ -432,7 +431,8 @@ class ClassificationOnlyPipeline:
         preds = self.evaluate_and_dump(test_loader=test_loader, encoders=self.encoders,
                                     dump_dir=os.path.join(output_dir,'classifier'))
         self.plot_training_history(history, os.path.join(output_dir, 'history_plot'))
-        return {'history': history, 'preds': preds}
+        print(f"pred_acc: {sum(preds['pred_behavior'] == preds['true_behavior']) / len(preds['pred_behavior']) }")
+        return {'history': history, 'preds': preds}, test_loader
     
 
     def plot_training_history(self, history: Dict[str, List[float]], save_path: str):
@@ -471,7 +471,7 @@ def create_classification_config() -> Dict[str, Any]:
         'window_size': 100,
         'batch_size': 128,
         'classifier_lr': 1e-3,
-        'classifier_epochs': 300,
+        'classifier_epochs': 10,
         'classifier_dropout': 0.1,
         'task': 'behavior', 
         'train_mode': 'segments', 
@@ -487,9 +487,9 @@ def main():
     parser.add_argument('--test-csv', help='Optional. If omitted and --split-train is set, we split train.csv into train/val/test.')
     parser.add_argument('--subject-print', help='Subject ID from test.csv to print per-window predictions')
     parser.add_argument('--output-dir', default='output')
-    parser.add_argument('--export-segment-tokens', action='store_true',
+    parser.add_argument('--export-segment-tokens', default = True,
                         help='Export fixed-K tokens per action segment')
-    parser.add_argument('--export-from', choices=['train','test'], default='test',
+    parser.add_argument('--export-from', choices=['train','test'], default='train',
                         help='Which split CSV to export from')
     parser.add_argument('--segment-by', choices=['behavior','gesture'], default='behavior')
     parser.add_argument('--group-key', default='sequence_id',
@@ -509,11 +509,11 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     cfg = create_classification_config()
     pipe = ClassificationOnlyPipeline(cfg)
-    res = pipe.run(args.train_csv, args.test_csv, output_dir=args.output_dir)
+    res, test_loader = pipe.run(args.train_csv, args.test_csv, output_dir=args.output_dir)
 
     if args.export_segment_tokens:
         csv_src = args.train_csv if args.export_from == 'train' else args.test_csv
-        pipe.export_segment_tokens(
+        saved_path = pipe.export_segment_tokens(
             csv_path=csv_src,
             save_dir=os.path.join(args.output_dir, 'classifier'),
             pool_k=args.pool_k,
@@ -521,7 +521,7 @@ def main():
             segment_by=args.segment_by
         )
     if args.subject_print:
-        pipe.print_subject_predictions(args.test_csv, args.subject_print)
+        pipe.print_subject_predictions(args.train_csv, args.subject_print, test_loader)
 
     print("Best classifier: output/classifier/best_classifier.pth")
     print("Test preds & tokens: output/classifier/test_predictions_and_tokens.npz")

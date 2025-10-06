@@ -9,3 +9,8 @@ __pycache__/
 ouput/
 # macOS
 .DS_Store
+
+# Generated artifacts
+output/
+*.npz
+*.png

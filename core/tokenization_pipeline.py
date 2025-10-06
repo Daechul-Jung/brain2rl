@@ -36,7 +36,7 @@ class TokenizationPipeline:
 
     def __init__(self, model_config: Dict[str, Any]):
         self.cfg = model_config
-        self.device = torch.device('cude' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.logger = logging.getLogger('Brain2RL.Tokenization')
         if not self.logger.handlers:
             h = logging.StreamHandler()
@@ -126,7 +126,7 @@ class TokenizationPipeline:
 
                 attn_output, attn_info = self.attn(enc, enc, enc)
                 print(f'shape of encoded tokens: {enc.shape} and shape of attention output: {attn_output.shape}')
-                if not hasattr(self, 'prodiction_head'):
+                if not hasattr(self, 'prediction_head'):
                     self.prediction_head = nn.Linear(self.cfg['embedding_dim'], tok_logits.size(-1)).to(self.device)
 
 
@@ -138,13 +138,14 @@ class TokenizationPipeline:
                     self.action_head = nn.Linear(self.cfg['embedding_dim'], int(actions.max())+1).to(self.device)
                 global_emb = enc.mean(dim=1)                     # (B, E)
                 logits_action = self.action_head(global_emb)     # (B, A)
-                loss_aux = self.criterion(logits_action, yb)
+                loss_aux = self.criterion(logits_action, y_batch)
 
                 loss = loss_main + self.cfg.get('aux_weight', 0.5) * loss_aux
-                loss.backward(); self.opt.step()
+                loss.backward()
+                self.optimizer.step()
 
                 with torch.no_grad():
-                    acc = (logits_action.argmax(dim=1) == yb).float().mean().item() * 100.0
+                    acc = (logits_action.argmax(dim=1) == y_batch).float().mean().item() * 100.0
                 train_loss += loss.item(); train_acc += acc; num_batch += 1
 
             train_loss /= max(1, n_b); train_acc /= max(1, n_b)
@@ -153,25 +154,24 @@ class TokenizationPipeline:
             self.tokenizer.eval(); self.attn.eval()
             va_loss = va_acc = n_b = 0
             with torch.no_grad():
-                for xb, yb in val_data:
-                    xb, yb = xb.to(self.device), yb.to(self.device)
-                    tok_logits = self.tokenizer(xb)
-                    enc = self.tokenizer.encode(xb)
+                for x_batch, y_batch in val_data:
+                    x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
+                    tok_logits = self.tokenizer(x_batch)
+                    enc = self.tokenizer.encode(x_batch)
                     attn_output, attn_info = self.attn(enc, enc, enc)
                     if not hasattr(self, 'prediction_head'):
                         self.prediction_head = nn.Linear(self.cfg['embedding_dim'], tok_logits.size(-1)).to(self.device)
                     pred = self.prediction_head(attn_output[:, :-1, :])
                     tgt  = tok_logits[:, 1:, :].detach().argmax(dim=-1)
                     loss_main = self.criterion(pred.reshape(-1, pred.size(-1)), tgt.reshape(-1))
-
+                    loss = loss_main
                     if hasattr(self, 'action_head'):
                         global_emb = enc.mean(dim=1)
                         logits_action = self.action_head(global_emb)
-                        loss_aux = self.criterion(logits_action, yb)
+                        loss_aux = self.criterion(logits_action, y_batch)
                         loss = loss_main + self.cfg.get('aux_weight', 0.5) * loss_aux
-                        va_acc += (logits_action.argmax(dim=1) == yb).float().mean().item() * 100.0
-                    else:
-                        loss = loss_main
+                        va_acc += (logits_action.argmax(dim=1) == y_batch).float().mean().item() * 100.0
+                    
                     va_loss += loss.item(); n_b += 1
             va_loss /= max(1, n_b); va_acc /= max(1, n_b)
 
@@ -205,10 +205,10 @@ class TokenizationPipeline:
         lens = []
 
         for i in tqdm(range(len(ds)), desc="Building RL Trajectories"):
-            xb, yb = ds[i]                               # xb: (128, T)
-            xb = xb.unsqueeze(0).to(self.device)        # (1, 128, T)
+            xb, yb = ds[i]   ### xb: (128, T)
+            xb = xb.unsqueeze(0).to(self.device)   # (1, 128, T)
 
-            enc = self.tokenizer.encode(xb)             # (1, Tenc, E)
+            enc = self.tokenizer.encode(xb)    ## (1, Tenc, E)
             attn_out, info = self.attn(enc, enc, enc)   # (1, Tenc, E), dict
 
             Tenc = enc.size(1)
@@ -338,7 +338,7 @@ def main():
     pipe = TokenizationPipeline(cfg)
 
     if args.mode == 'train':
-        hist = pipe.train_on_classifier_tokens(tokens_win, actions, epochs=args.epochs)
+        hist = pipe._train_on_classifier_tokens(tokens_win, actions, epochs=args.epochs)
         pipe.save_models(args.model_path)
         print(f"Training done. Last val acc: {hist['val_acc'][-1]:.2f}%")
     else:
