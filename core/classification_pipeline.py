@@ -20,7 +20,6 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import classification components
-from models.classification.time_series_dataset import TimeSeriesDataset
 from models.classification.action_classifier import ActionClassifier
 from models.classification.data_utilities import (
     load_sensor_data, preprocess_multilabel, 
@@ -248,12 +247,6 @@ class ClassificationOnlyPipeline:
         X = self.scaler.transform(X_raw)
         y_enc = {k: self.encoders[k].transform(y_raw[k]) for k in ['behavior','gesture']}
 
-        # loader = create_test_loader(
-        #     X, y_enc,
-        #     window_size=self.config['window_size'],
-        #     batch_size=self.config['batch_size'],
-        #     overlap=0.5, task=self.config.get('task','both')
-        # )
         loader = test_loader
         preds = self.evaluate_and_dump(loader, self.encoders)  # reuse forward pass
 
@@ -382,23 +375,7 @@ class ClassificationOnlyPipeline:
                                     shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
             test_loader = DataLoader(ds_te, batch_size=self.config['batch_size'],
                                     shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
-            #-------------------------------------------------------------------------------
-            # uniq_groups = np.array(sorted(set(group_train.astype(str))))
-            # gss = GroupShuffleSplit(test_size=0.2, random_state=42)
-            # g_tr_idx, g_va_idx = next(gss.split(uniq_groups, groups=uniq_groups))
-            # train_groups = set(uniq_groups[g_tr_idx]); val_groups = set(uniq_groups[g_va_idx])
 
-            # segs_tr = [s for s in segs_all if s[2] in train_groups]
-            # segs_va = [s for s in segs_all if s[2] in val_groups]
-
-            # ds_tr = SegmentDataset(X_train, y_train, group_train, segs_tr, task=self.task)
-            # ds_va = SegmentDataset(X_train, y_train, group_train, segs_va, task=self.task)
-
-            # train_loader = DataLoader(ds_tr, batch_size=self.config['batch_size'],
-            #                         shuffle=True, collate_fn=lambda b: pad_collate(b, task=self.task))
-            # val_loader = DataLoader(ds_va, batch_size=self.config['batch_size'],
-            #                         shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
-            #-------------------------------------------------------------------------------
         num_behave = len(self.encoders['behavior'].classes_)
         num_gesture = len(self.encoders['gesture'].classes_)
         self.logger.info(f'num behavior: {num_behave} and num gesture: {num_gesture}')
@@ -406,27 +383,6 @@ class ClassificationOnlyPipeline:
 
         save_preprocessing_info(self.scaler, self.encoders,
                                 os.path.join(output_dir, 'classifier', 'preproc.pkl'))
-
-        # X_test_raw, y_test_str, group_test, _ = load_sensor_data(test_csv, group_by='sequence_id')
-        # X_test = self.scaler.transform(X_test_raw)
-        # y_test = {k: self.encoders[k].transform(y_test_str[k]) for k in ['behavior','gesture']}
-
-        # if train_mode == 'windows':
-        #     test_loader = create_test_loader(
-        #         X_test=X_test, y_test_enc=y_test,
-        #         window_size=self.config['window_size'],
-        #         batch_size=self.config['batch_size'],
-        #         overlap=0.5, task=self.task
-        #     )
-        # else:
-        #     # segment test loader
-        #     use_gesture_for_seg = (self.config.get('segment_by','behavior') == 'behavior_gesture')
-        #     segs_te = contiguous_segments(group_test.astype(str),
-        #                                 y_test['behavior'],
-        #                                 y_test['gesture'] if use_gesture_for_seg else None)
-        #     ds_te = SegmentDataset(X_test, y_test, group_test, segs_te, task=self.task)
-        #     test_loader = DataLoader(ds_te, batch_size=self.config['batch_size'],
-        #                             shuffle=False, collate_fn=lambda b: pad_collate(b, task=self.task))
 
         preds = self.evaluate_and_dump(test_loader=test_loader, encoders=self.encoders,
                                     dump_dir=os.path.join(output_dir,'classifier'))
