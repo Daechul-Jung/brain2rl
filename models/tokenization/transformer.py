@@ -42,7 +42,7 @@ class MultiHeadAttention(nn.Module):
 
         Q = self.W_q(query).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)  ### (B, H, T, head dim)
         V = self.W_v(value).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
-        K = self.W_v(value).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        K = self.W_k(key).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
 
         scores = torch.matmul(Q, K.transpose(-2, -1)) / self.scale  ### (B, H, T, T)
 
