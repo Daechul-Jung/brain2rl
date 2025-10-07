@@ -19,3 +19,7 @@ output/
 output/
 *.npz
 *.png
+
+# Python bytecode
+__pycache__/
+*.pyc
