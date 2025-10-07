@@ -1,12 +1,19 @@
-# Ignore data folder and any CSV files
+# Data & datasets
 data/
 dataset.csv
 *.csv
+
+# External assets
 external/openarm_mujoco/
+
+# Model artifacts
 *.pt
 *.pth
+
+# Python bytecode
 __pycache__/
-ouput/
+*.pyc
+
 # macOS
 .DS_Store
 
@@ -14,12 +21,3 @@ ouput/
 output/
 *.npz
 *.png
-
-# Generated artifacts
-output/
-*.npz
-*.png
-
-# Python bytecode
-__pycache__/
-*.pyc
