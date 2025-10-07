@@ -111,7 +111,7 @@ class TokenizationPipeline:
         C, T = x_batch.shape
         self.initialize_models(input_channels=C, input_length=T)
         train_data, val_data = self._spilt_train_val(dataset, ratio=0.8)
-
+        
         for ep in range(epochs):
             self.tokenizer.train()
             self.attn.train()
@@ -148,11 +148,11 @@ class TokenizationPipeline:
                     acc = (logits_action.argmax(dim=1) == y_batch).float().mean().item() * 100.0
                 train_loss += loss.item(); train_acc += acc; num_batch += 1
 
-            train_loss /= max(1, n_b); train_acc /= max(1, n_b)
+            train_loss /= max(1, num_batch); train_acc /= max(1, num_batch)
 
             # Val
             self.tokenizer.eval(); self.attn.eval()
-            va_loss = va_acc = n_b = 0
+            va_loss = va_acc = num_batch = 0
             with torch.no_grad():
                 for x_batch, y_batch in val_data:
                     x_batch, y_batch = x_batch.to(self.device), y_batch.to(self.device)
@@ -172,8 +172,8 @@ class TokenizationPipeline:
                         loss = loss_main + self.cfg.get('aux_weight', 0.5) * loss_aux
                         va_acc += (logits_action.argmax(dim=1) == y_batch).float().mean().item() * 100.0
                     
-                    va_loss += loss.item(); n_b += 1
-            va_loss /= max(1, n_b); va_acc /= max(1, n_b)
+                    va_loss += loss.item(); num_batch += 1
+            va_loss /= max(1, num_batch); va_acc /= max(1, num_batch)
 
             self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(va_loss)
