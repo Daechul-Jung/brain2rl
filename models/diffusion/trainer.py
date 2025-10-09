@@ -17,15 +17,15 @@ class Trainer:
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, betas = (0.9, 0.99), weight_decay=1e-4)
         self.ema = EMA(self.model, ema_decay) if ema_decay > 0 else None
 
-    def loss_step(self, x0: torch.Tensor, cond = None):
+    def loss_step(self, x0: torch.Tensor, cond_vec: torch.Tensor | None = None, cfg_drop_p: float = 0.1):
         b = x0.size(0)
         t = torch.randint(0, self.diff.T, (b, ), device=self.device)
-        noise = torch.randn_like(x0)
+        noise = torch.randn_like(x0) 
         x_t = self.diff.q_sample(x0, t, noise)  ### Same size with x0
         # classifier-free guidance training: randomly drop cond
-        if cond is not None and torch.rand(1, device=self.device) < 0.1:
-          cond = None
-        eps_pred = self.model(x_t, t, cond)  ## cond = none
+        if cond_vec is not None and torch.rand(1, device=self.device) < cfg_drop_p:
+          cond_vec = None
+        eps_pred = self.model(x_t, t, cond_vec)  ## cond = none
         return F.mse_loss(eps_pred, noise)
 
 
@@ -35,7 +35,13 @@ class Trainer:
         
         for ep in range(1, epochs + 1):
             pbar = tqdm(loader, total=len(loader), desc=f"epoch {ep}/{epochs}", leave=True)
-            for x, _ in pbar:
+            for batch in pbar:
+                if isinstance(batch, (list, tuple)) and len(batch) == 2:
+                    x0, cond_vec = batch
+                    cond_vec = cond_vec.to(self.device)
+                else:
+                    x0, cond_vec = batch[0], None
+                    
                 self.model.train()
                 x = x.to(self.device)
                 loss = self.loss_step(x0=x, cond=None)

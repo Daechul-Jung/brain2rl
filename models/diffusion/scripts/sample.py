@@ -38,7 +38,7 @@ def main():
 
     diff = Diffusion(T=ckpt["diff"]["T"], device=device.type)
     diff.betas = ckpt["diff"]["betas"].to(device)
-    diff.alphas, diff.alpha_bar, diff.sqrt_ab, diff.sqrt_1mab = build_constants(diff.betas)
+    diff.alphas, diff.alpha_bar, diff.sqrt_alpha_bar, diff.sqrt_1mab = build_constants(diff.betas)
 
 
     shape = (args.num, 3, 32, 32)
