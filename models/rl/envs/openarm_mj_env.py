@@ -255,51 +255,30 @@ class OpenArmMjEnv:
         self.t = 0
         mujoco.mj_resetData(self.model, self.data)
         
-        # randomize cup pose on table
-        qsl = self._cup_qpos_slice()
-        x = np.random.uniform(0.30, 0.48)
-        y = np.random.uniform(0.08, 0.20)
-        self.data.qpos[qsl] = [x, y, 0.06, 1, 0, 0, 0]
-
-
         #### Cup goal 
         qsl_cup = self._cup_qpos_slice()
         x = np.random.uniform(0.28, 0.34)   # closer than before
         y = np.random.uniform(0.10, 0.18)
         self.data.qpos[qsl_cup] = [x, y, 0.06, 1, 0, 0, 0]
 
-        # Compute goal from cup_start (+x or +y depending on your setup)
-        self.cup_start = self._cup()
-        direction = +1.0 if self.goal_mode == "left_to_right" else -1.0
-        self.goal_pos = self.cup_start.copy()
-        self.goal_pos[0] += direction * self.goal_offset  # or [1] if your left/right is y
-
-        # Move the visible marker to goal_pos
-        qsl_goal = self._free_qpos_slice(self.jid_goal_free)
-        self.data.qpos[qsl_goal] = [self.goal_pos[0], self.goal_pos[1], self.goal_pos[2], 1, 0, 0, 0]
-
-
-        # settle
-        self.data.qvel[:] = 0.0
         for _ in range(10):
             mujoco.mj_step(self.model, self.data)
 
-        # record start & define goal on x-axis
+        # Compute goal from cup_start (+x or +y depending on your setup)
+        # 2) define goal from current cup pose
         self.cup_start = self._cup()
         direction = +1.0 if self.goal_mode == "left_to_right" else -1.0
         self.goal_pos = self.cup_start.copy()
         self.goal_pos[0] += direction * self.goal_offset
-        direction = +1.0 if self.goal_mode == "left_to_right" else -1.0
-        axis = "y"  # <<< try "y" instead of "x"
-        self.goal_pos = self.cup_start.copy()
-        if axis == "x":
-            self.goal_pos[0] += direction * self.goal_offset
-        else:
-            self.goal_pos[1] += direction * self.goal_offset
 
-        # shaping memory
-        self.prev_cup_goal_dist = np.linalg.norm(self.cup_start - self.goal_pos)
+        qsl_goal = self._free_qpos_slice(self.jid_goal_free)
+        self.data.qpos[qsl_goal][:3] = self.goal_pos       # xyz
+        self.data.qpos[qsl_goal][3:] = [1, 0, 0, 0]        # unit quaternion
+
+        self.prev_cup_goal_dist = float(np.linalg.norm(self.cup_start - self.goal_pos))
         self.prev_cup_pos = self.cup_start.copy()
+        self.prev_ee_cup = float(np.linalg.norm(self._ee() - self._cup()))
+
 
         obs = self._get_obs()
         info = {"goal_pos": self.goal_pos.copy()}
@@ -335,7 +314,6 @@ class OpenArmMjEnv:
 
         if self.render and self.viewer:
             self.viewer.sync()
-        # print(f"EE {self._ee()}  CUP {self._cup()}  GOAL {self.goal_pos}  mode={self.goal_mode}")
 
         return self._get_obs(), float(r), terminated, truncated, info
     

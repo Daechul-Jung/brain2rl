@@ -26,7 +26,7 @@ According to the paper, it does not utilize the replay buffer
 class RePPOAgent:
     def __init__(self, observation_dim, action_dim, num_atoms = 151,  ### num_atoms (51 ~ 151)
                  vmin= -2000, vmax=4000, device='cuda',
-                 lr = 3e-4, gamma = 0.99, kl_start = 0.05, entropy_start = 0.05,
+                 lr = 3e-4, gamma = 0.99, kl_start = 0.01, entropy_start = 0.01,
                  lmbda = 0.95, obs_normalizer= None , critic_obs_normalizer = None):
         
         super().__init__()
@@ -39,9 +39,9 @@ class RePPOAgent:
         self.lmbda = lmbda
 
         self.entropy_target = 0.3 * action_dim   # was 0.5 * action_dim (too high)
-        self.kl_bound = 0.02                      # was 0.1 (too tight)
+        self.kl_bound = 0.1                      # was 0.1 (too tight)
         self.kl_target = 0.01  #### previous 0.25 and try 0.5, 0.75 
-
+        self.entropy_target_mult = 0.5
         self.num_atoms = num_atoms
         self.observation_dim = observation_dim
         self.action_dim = action_dim 
@@ -125,7 +125,7 @@ class RePPOAgent:
         q_scalar, q_logit, next_pred, _features = self._critic_forward(observation_critic, actions)  ## Return value, logit, next_
 
         qf_loss = -(trunc_mask * torch.sum(q_target_dist * F.log_softmax(q_logit, dim = -1), dim=-1)).mean()
-        emb_loss = (trunc_mask * F.mse_loss(next_pred, target_next_feature, reduction='none').mean(-1)).mean()
+        emb_loss = (trunc_mask * F.mse_loss(next_pred, target_next_feature, reduction='none').mean(dim=-1)).mean()
 
         qf_loss = qf_loss + self.aux_loss_mult * emb_loss
 
@@ -176,44 +176,46 @@ class RePPOAgent:
         log_prob = pi.log_prob(actions_for_log).sum(-1)
         entropy = -log_prob
         q_scalar, _, _, _ = self._critic_forward(observation_critic, actions)
-
+        actor_loss = -q_scalar + temp.detach() * log_prob
+        
         EPS, K = 1e-6, 16
-        a_new = pi.sample((K,)).clamp(-1+EPS, 1-EPS) ## new action from current actor network
-        # logp_new = pi.log_prob(a_new).sum(-1)  # [K,B] 
-
-        with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
-            old_pi, _, _, _ = self._old_actor_forward(observation)
-            old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
+        
+        ### compute KL
+        # with torch.no_grad():  ### Try to remove this no_grad since here is the place for updating actor network 
+        old_pi, _, _, _ = self._old_actor_forward(observation)
+        old_a = old_pi.sample((K, )).clamp(-1 + EPS, 1 - EPS)
         ### Use old_actor for calculating KL
         # logp_new = pi.log_prob(old_a).sum(-1)
         logp_old = old_pi.log_prob(old_a).sum(-1)                 # [K,B]
         logp_new = pi.log_prob(old_a).sum(-1)
         kl = (logp_old - logp_new).mean(0)  # [B] 
         ###############################################################
-        actor_loss = (-q_scalar + temp.detach()*log_prob).mean()
- 
-        # actor_loss = actor_loss + lagrange.detach() * kl.mean()   ### version 1
-        actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_target).mean()  ### version 2
+        actor_loss = (-q_scalar + temp.detach()*log_prob)
+
+        #### Original in the paper ####
+        if self.actor_kl_clip_mode == 'clipped':
+            actor_loss = torch.where(
+                kl < self.kl_bound,
+                actor_loss,
+                kl * lagrange.detach()
+            )
+        ### temperature update
+        target_entropy = (
+            actions.shape[-1] * self.entropy_target_mult
+        )
+        entropy_loss = (target_entropy + entropy).detach().mean() * temp
+        lagrangian_loss = (-lagrange * (kl - self.kl_bound).mean().detach() )
+
+
+        # actor_loss = actor_loss + lagrange.detach() * torch.relu(kl - self.kl_target).mean()  ### version 2
 
         # temperature  and lagrange  updates (correct signs)
-        H = entropy.detach().mean()
-        entropy_loss = temp * (self.entropy_target - H)#(H - self.entropy_target)             # drives alpha up if H < target
-        lagrangian_loss = -lagrange * (kl - self.kl_target).detach().mean() # drives beta up if KL > target
+        # H = entropy.detach().mean()
+        # entropy_loss = temp * (self.entropy_target - H)#(H - self.entropy_target)             # drives alpha up if H < target
+        # lagrangian_loss = -lagrange * (kl - self.kl_target).detach().mean() # drives beta up if KL > target
 
-        total_loss = actor_loss + entropy_loss + lagrangian_loss
+        total_loss = (actor_loss + entropy_loss + lagrangian_loss).mean()
         
-        ######################## Version with Scaler #########################
-        # self.actor_optimizer.zero_grad(set_to_none=True)
-        # self.scaler.scale(total_loss).backward()
-        # self.scaler.unscale_(self.actor_optimizer)
-        # # total_loss.backward()
-        # actor_grad_norm = torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=self.max_grad_norm)
-        # # nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
-        # self.scaler.step(self.actor_optimizer)
-        # self.scaler.update()
-        # self.actor_optimizer.step()
-        ###################################################################### 
-
         ####################### Version without Scaler ########################
         self.actor_optimizer.zero_grad()
         total_loss.backward()
@@ -254,55 +256,57 @@ class RePPOAgent:
         for _ in range(num_steps):
             norm_obs = self.observation_normalizer(observation)
             norm_critic_obs = self.critic_observation_normalizer(critic_observation)
-            with torch.no_grad():
+            with torch.no_grad(): ## or with torch.inference_mode
                 #pi, _, temp, lagrange = self._actor_forward(observation)  ## This is original version from the author but different from what it is described in the paper
-                old_pi, _, _, _ = self._old_actor_forward(norm_obs)  ## As we know, temp and lagrange are scalar value, 
+                pi, _, _, _ = self._actor_forward(norm_obs)  ## As we know, temp and lagrange are scalar value, 
 
-                #### Try current actor #### 
-                # old_pi, _, _, _ = self._actor_forward(norm_obs)
                 ####################
-                old_action = old_pi.sample()  ## (17, ) dimensional
-                old_action_t = old_action.clamp(-1 + 1e-6,  1 - 1e-6) ### Warning: Do not confuse about log_prob and action. These are totally different   ## (action_dim, )
-                old_log_prob_torch = old_pi.log_prob(old_action_t).sum(-1) ### Scalar value 
-                old_action = old_action_t.detach().cpu().numpy().astype(np.float32)
+                action = pi.sample()  ## (17, ) dimensional
+                action_t = action.clamp(-1 + 1e-6,  1 - 1e-6) ### Warning: Do not confuse about log_prob and action. These are totally different   ## (action_dim, )
+                log_prob_torch = pi.log_prob(action_t).sum(-1) ### Scalar value 
+                action = action_t.detach().cpu().numpy().astype(np.float32)
 
                 if isinstance(env.action_space, gym.spaces.Box):
                     low, high = env.action_space.low, env.action_space.high
                     if not (np.allclose(low, -1.0) and np.allclose(high, 1.0)):
-                        old_action_np = low + 0.5 * (old_action + 1.0) * (high - low)
+                        action_np = low + 0.5 * (action + 1.0) * (high - low)
 
-            step_return = env.step(old_action_np)
+            step_return = env.step(action_np)
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
             next_critic_observation = next_observation
+            # done_now = bool(dones) or bool(truncated)
 
             _next_observation = _to_tensor(next_observation, self.device)
             _next_critic_observation = _to_tensor(next_critic_observation, self.device)
 
             next_norm_obs = self.observation_normalizer(_next_observation)
             next_norm_critic_obs = self.critic_observation_normalizer(_next_critic_observation)
-
+            # with torch.inference_mode():
             with torch.no_grad():
                 # next_pi, _, next_temp, next_largran = self._actor_forward(_next_observation) ## This is the original version from the author's code but different from what it is described in the paper, 
-                old_next_pi, _, old_next_temp, old_next_lagran = self._old_actor_forward(next_norm_obs)
+                next_pi, _, next_temp, old_next_lagran = self._actor_forward(next_norm_obs)
 
                 ####### Try current actor #################
                 # old_next_pi, _, old_next_temp, old_next_lagran = self._actor_forward(next_norm_obs)
                 #####################################
 
-                old_next_action = old_next_pi.sample()
-                old_next_action = _to_tensor(old_next_action, self.device)
+                next_action = next_pi.sample()
+                next_action = _to_tensor(next_action, self.device)
                 
                 ### Take sum over batch dimension
-                old_next_log_prob = old_next_pi.log_prob(old_next_action.clamp(-1 + 1e-6, 1 - 1e-6)).sum(-1)
+                next_log_prob = next_pi.log_prob(next_action).clamp(-1 + 1e-6, 1 - 1e-6).sum(-1)
 
-                next_value, _, _, next_features = self._critic_forward(next_norm_critic_obs, old_next_action)
+                next_value, _, _, next_features = self._critic_forward(next_norm_critic_obs, next_action)
                 rewards = _to_tensor(rewards, self.device).view(-1) ## Scalar but just make it as tensor with 1-dimension, then reward itself is too low
 
-                shaped_reward = rewards - old_next_log_prob * old_next_temp * self.gamma
-                old_action = _to_tensor(old_action, self.device)
+                # shaped_reward = rewards - old_next_log_prob * old_next_temp * self.gamma
+                # print(old_next_log_prob * old_next_temp)
+                shaped_reward = rewards - next_log_prob * next_temp * self.gamma
+                # shaped_reward = rewards
+                action = _to_tensor(action, self.device)
 
             observation_batch, critic_observation_batch, action_batch, log_prob_batch, rewards_batch, raw_reward_batch, next_features_batch, next_value_batch, dones_batch, truncated_batch = wrap_batch_dim(
-                norm_obs, norm_critic_obs, old_action, old_log_prob_torch, shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
+                norm_obs, norm_critic_obs, action, log_prob_torch, shaped_reward, rewards, next_features, next_value, dones, truncated, self.device
             )
 
             td = TensorDict(
@@ -323,7 +327,17 @@ class RePPOAgent:
 
             trajectory.append(td)
             info_list.append(infos)
-            
+
+            ################ Added for reset per each episode #########################
+            # if done_now:
+            #     reset_ret = env.reset()
+            #     observation = _to_tensor(reset_ret[0] if isinstance(reset_ret, tuple) else reset_ret, self.device)
+            #     critic_observation = observation
+            # else:
+            #     observation = _to_tensor(next_observation, self.device)
+            #     critic_observation = observation
+            ###########################################################################
+
             observation = _to_tensor(next_observation, self.device)
             critic_observation = _to_tensor(next_critic_observation, self.device)
             
