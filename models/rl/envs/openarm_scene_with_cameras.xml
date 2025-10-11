@@ -43,6 +43,17 @@
       <site name="cup_top" pos="0 0 0.06"/>   
     </body>
 
+
+    <body name="goal_marker" pos="0.35 0.18 0.06">
+      <!-- Free body so we can move it from Python -->
+      <freejoint name="goal_freejoint"/>
+      <!-- Visible, non-colliding "ghost" marker -->
+      <geom type="sphere" size="0.012" rgba="0.2 1.0 0.2 0.4" contype="0" conaffinity="0" group="3"/>
+      <!-- Optional site for reading its pose -->
+      <site name="goal_site" pos="0 0 0" size="0.006" type="sphere" rgba="0.2 1.0 0.2 0.9"/>
+    </body>
+
+
   </worldbody>
 
   <sensor>
