@@ -25,7 +25,7 @@ According to the paper, it does not utilize the replay buffer
 
 class RePPOAgent:
     def __init__(self, observation_dim, action_dim, num_atoms = 151,  ### num_atoms (51 ~ 151)
-                 vmin= -2000, vmax=4000, device='cuda',
+                 vmin= -2500, vmax=2500, device='cuda',  ### vmin=-2000, vmax=4000
                  lr = 3e-4, gamma = 0.99, kl_start = 0.01, entropy_start = 0.01,
                  lmbda = 0.95, obs_normalizer= None , critic_obs_normalizer = None):
         

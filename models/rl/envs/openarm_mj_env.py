@@ -257,14 +257,13 @@ class OpenArmMjEnv:
         
         #### Cup goal 
         qsl_cup = self._cup_qpos_slice()
-        x = np.random.uniform(0.28, 0.34)   # closer than before
+        x = np.random.uniform(0.00, 0.34)   # closer than before
         y = np.random.uniform(0.10, 0.18)
         self.data.qpos[qsl_cup] = [x, y, 0.06, 1, 0, 0, 0]
 
         for _ in range(10):
             mujoco.mj_step(self.model, self.data)
 
-        # Compute goal from cup_start (+x or +y depending on your setup)
         # 2) define goal from current cup pose
         self.cup_start = self._cup()
         direction = +1.0 if self.goal_mode == "left_to_right" else -1.0
@@ -408,4 +407,5 @@ class OpenArmMjEnv:
             "curr_stage": self.curr_stage,
             "stage_success_count": self.stage_success_count
         })
+        
         return r_total, shaped

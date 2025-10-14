@@ -34,7 +34,7 @@ def render_agent(agent, env_name: str, episodes: int = 1):
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPO/SAC agent on OpenAI Gym continuous environment")
-    parser.add_argument('--env', type=str, default='HumanoidStandup-v5', help='Gym environment name')   #####  HumanoidStandup-v5, Reacher-v5, Humanoid-v5
+    parser.add_argument('--env', type=str, default='Humanoid-v5', help='Gym environment name')   #####  HumanoidStandup-v5, Reacher-v5, Humanoid-v5
     parser.add_argument('--algo', type=str, default='ppo', choices=['ppo', 'sac', 'reppo', 'comic'], help='RL algorithm to use')
     parser.add_argument('--episodes', type=int, default=1000, help='Number of training episodes')
     parser.add_argument('--max_steps', type=int, default=1000, help='Max steps per episode')
