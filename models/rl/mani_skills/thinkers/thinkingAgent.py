@@ -62,11 +62,11 @@ class Controlcfg:
 
 class ThinkingAgent:
     """
-    Wrap Thinking model and convert intents into low-level actions.
+    Wrap Thinking model and convert intents into low-level actions. Main body of thinker 
     """
 
     def __init__(self, thinker, ctrl: Controlcfg, ):
-        self.thinker = thinker
+        self.thinker = thinker ## Any thinker can be here but 
         self.ctrl = ctrl
 
     def reset(self):
@@ -75,8 +75,8 @@ class ThinkingAgent:
     def _delta_to(self, curr: np.ndarray, tgt: np.ndarray) -> np.ndarray:
         d = np.zeros(3, dtype=np.float32)
         diff = tgt - curr
-        d[:2] = self.ctrl.ee_gain_xy
-        d[2] = self.ctrl.ee_gain_z
+        d[:2] = self.ctrl.ee_gain_xy * diff[:2]
+        d[2] = self.ctrl.ee_gain_z * diff[2]
         return clamp(d, -self.ctrl.dpos_clip, self.ctrl.dpos_clip)
     
     def act(self, obs: Dict, info: Dict):
