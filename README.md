@@ -15,7 +15,7 @@ A comprehensive pipeline for converting brain signals to reinforcement learning 
 Brain2RL is an end-to-end pipeline that transforms brain signal data into robot control commands through four main stages:
 
 1. **Classification**: EEG data → Action classification
-2. **Tokenization**: Time series data → Tokens with Q/K/V matrices
+2. **Tokenization and prediction of next actions**: Time series data → Tokens with Q/K/V matrices
 3. **RL Training**: Relative Entropy Pairwise Policy Optimization reinforcement learning
 4. **Simulation**: OpenArm Project and Humanoid v-5 and other experimental environment 
 
@@ -26,8 +26,8 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌──────────────────┐
 │   Sensor Data   │───▶│  Classification  │───▶│  Tokenization   │───▶│   RL Training    │
-│  (EEG)          │    │                  │    │ (Transformer +  │    │ (PPO/REPPO with  │
-│                 │    │                  │    │  Attention)     │    │  Token Guidance) │
+│  (EEG)          │    │                  │    │ (Transformer or │    │ (PPO/REPPO with  │
+│                 │    │                  │    │  Diffusion)     │    │  Token Guidance) │
 └─────────────────┘    └──────────────────┘    └─────────────────┘    └──────────────────┘
                                                         │                        │
                                                         ▼                        ▼
@@ -44,14 +44,14 @@ The pipeline enables robots to learn from human brain signals, creating a direct
 - **Token-guided RL**: Novel approach using brain signal tokens to guide robot learning
 - **simulation**: OpenArm Project
 - **Flexible pipeline**: Run individual components or complete end-to-end workflow
-
+- **Final Goal**: Training Diffusion and Transformer model and using it as  
 
 ### Installation Prerequisites
 
 - **Operating System**: Ubuntu 22.04
 - **Python**: 3.8 or higher
 - **CUDA**: Optional but recommended for GPU acceleration
-- **ROS2 Humble**: For robot simulation (can be mocked for development)
+- **ROS2 Humble**: For robot simulation 
 
 ## Pipeline Components
 
@@ -90,7 +90,7 @@ Transforms classified time series data into tokens with Query/Key/Value matrices
 **Features:**
 - Transformer-based architecture
 - Multi-head attention mechanisms
-- Query/Key/Value matrix generation
+- Query/Key/Value matrix generation or Diffusion model for controling robots or any other controller which can be defined with action dimensions
 - Temporal sequence modeling
 
 **Usage:**
@@ -228,31 +228,6 @@ python models/rl/launch/compare_algo.py \
 
 ## Usage Examples
 
-### Complete Pipeline Workflow
-
-Here's how to run the complete Brain2RL pipeline from start to finish:
-
-```bash
-# Step 1: Prepare your sensor data
-# Place your EEG/sensor data in data/sensor_data/ directory
-# Expected format: .npz files with 'X' (data) and 'y' (labels) arrays
-
-# Step 2: Run the complete pipeline
-python3 core/main_pipeline.py \
-    --mode full \
-    --data-path data/sensor_data/ \
-    --output-dir output/ \
-    --config config/pipeline_config.json
-
-# Step 3: Check results
-ls output/
-# You should see:
-# - classification_results.pth
-# - tokenization_results.npz  
-# - rl_training_results.pth
-# - pipeline_results.pth
-```
-
 ### Individual Component Workflow
 
 If you prefer to run components individually:
@@ -313,7 +288,7 @@ Create configuration files for customizing the pipeline:
         "max_sequence_length": 1000
     },
     "rl_training": {
-        "algorithm": "ppo",
+        "algorithm": "reppo",
         "learning_rate": 0.0003,
         "batch_size": 64,
         "gamma": 0.99,
@@ -328,17 +303,19 @@ Create configuration files for customizing the pipeline:
 ```
 brain2rl/
 ├── core/                          # Main pipeline components
-│   ├── main_pipeline.py          # Orchestrator
+│   ├── main_pipeline.py           # Orchestrator
 │   ├── classification_pipeline.py # Classification component
-│   ├── tokenization_pipeline.py  # Tokenization component
-│   ├── rl_training_pipeline.py   # RL training component
+│   ├── tokenization_pipeline.py   # Tokenization component
+│   ├── rl_training_pipeline.py    # RL training component
 ├── models/                        # Model architectures
-│   ├── classification/           # Action classification models 
-│   ├── tokenization/            # Tokenizing time series data for trajectories
-│   └── rl/                      # RL model for OpenArm and general gym env
-│       ├── agents               # RL Agents Collection
-|       ├─- launch               # code for launching with env
-│       └── utils                # Colection of Neural network and Actor-Critic network and any other utilities.
+│   ├── classification/            # Action classification models 
+│   ├── tokenization/              # Tokenizing time series data for trajectories
+│   └── rl/                        # RL model for OpenArm and general gym env
+│       ├── agents                 # RL Agents Collection 
+│       ├── mani_skills            # 
+|       ├── launch                 # code for launching with env
+|       ├── env                    # environment for mujoco(OpenArm, Maniskill, )
+│       └── utils                  # Colection of Neural network and Actor-Critic network and any other utilities.
 |── scripts/
 |   └─openarm/
 |      └─play_policy.py  
