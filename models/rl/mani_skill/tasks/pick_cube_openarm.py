@@ -6,8 +6,8 @@ from typing import Dict, Optional, Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]   # adjust if needed
 sys.path.insert(0, str(PROJECT_ROOT))
-from models.rl.mani_skills.thinkers.policyThinker import PolicyThinker
-from models.rl.mani_skills.thinkers.thinkingAgent import ThinkingAgent
+from models.rl.mani_skill.thinkers.policyThinker import PolicyThinker
+from models.rl.mani_skill.thinkers.thinkingAgent import ThinkingAgent
 
 MS_REPO_ROOT = Path('~/openarm_maniskill_simulation').expanduser()  # the folder that contains 'mani_skill/'
 assert (MS_REPO_ROOT / 'mani_skill').exists(), "Repo root must contain mani_skill/"

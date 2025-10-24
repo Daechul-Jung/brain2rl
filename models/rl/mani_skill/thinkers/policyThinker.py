@@ -4,7 +4,7 @@ import os, sys
 from typing import Dict
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from models.rl.mani_skills.thinkers.thinkingAgent import *
+from models.rl.mani_skill.thinkers.thinkingAgent import *
 
 class PolicyThinker:
     """
