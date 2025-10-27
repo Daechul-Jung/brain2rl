@@ -93,6 +93,11 @@ class CombinedTaskEnv(BaseEnv):
         self.pushEnv.evaluate()
         self.stackEnv.evaluate()
 
+    def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
+        with torch.device(self.device):
+            b = len(env_idx)
+            
+
     def _get_obs_extra(self):
         obs = dict(
             tcp_pose = self.agent.tcp.pose.raw_pose,
