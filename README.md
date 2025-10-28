@@ -312,7 +312,7 @@ brain2rl/
 │   ├── tokenization/              # Tokenizing time series data for trajectories
 │   └── rl/                        # RL model for OpenArm and general gym env
 │       ├── agents                 # RL Agents Collection 
-│       ├── mani_skills            # 
+│       ├── mani_skills            # Running multiple tasks with LLM and VLA with maniskill environments
 |       ├── launch                 # code for launching with env
 |       ├── env                    # environment for mujoco(OpenArm, Maniskill, )
 │       └── utils                  # Colection of Neural network and Actor-Critic network and any other utilities.

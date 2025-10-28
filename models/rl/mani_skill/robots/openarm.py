@@ -10,6 +10,5 @@ import torch
 
 import mani_skill
 import mani_skill.sensors as sensors
-from models.rl.mani_skill.tasks.pick_cube_openarm import *
 
 

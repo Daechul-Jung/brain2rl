@@ -14,10 +14,26 @@ where per-step deltas are clipped to ±0.1 meters/radians per your PDEEPose cont
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Optional, Protocol, Tuple
+from typing import Dict, Optional, Protocol, Tuple, List
+import os, sys
+import json, re
+from huggingface_hub import login, whoami
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.pipelines import pipeline
 import torch
 import torch.nn as nn
 import numpy as np
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+ALLOWED_TASKS = ["push", "pull", "pick", "stack"]
+TASK_SYNONYMS = {
+    "push": ["push", "pushing"],
+    "pull": ["pull", "pulling"],
+    "pick": ["pick", "pickup", "pick up", "pick-and-place", "pick & place", "pick/place"],
+    "stack": ["stack", "stacking"]
+}
+
 
 def clamp(x: np.ndarray, low: float, high: float) -> np.ndarray:
     return np.minimum(np.maximum(x, low), high)
@@ -65,39 +81,23 @@ class ThinkingAgent:
     Wrap Thinking model and convert intents into low-level actions. Main body of thinker 
     """
 
-    def __init__(self, thinker, ctrl: Controlcfg, ):
-        self.thinker = thinker ## Any thinker can be here but 
+    def __init__(self, planner, actor, ctrl: Controlcfg, prompt: str,):
+        self.planner = planner ## Any thinker can be here but VLA for later
+        self.actor = actor ### This is actor for performing actual action distribution
         self.ctrl = ctrl
+        self.tasks = self.setting_tasks(prompt) 
+        self.todo_list = {}
+        self.setting_todo_list()
 
-    def reset(self):
-        self.thinker.reset()
+    def setting_tasks(self, prompt):
+        plan = self.planner.plan(prompt)
+        return plan
 
-    def _delta_to(self, curr: np.ndarray, tgt: np.ndarray) -> np.ndarray:
-        d = np.zeros(3, dtype=np.float32)
-        diff = tgt - curr
-        d[:2] = self.ctrl.ee_gain_xy * diff[:2]
-        d[2] = self.ctrl.ee_gain_z * diff[2]
-        return clamp(d, -self.ctrl.dpos_clip, self.ctrl.dpos_clip)
+    def setting_todo_list(self):
+        for task in self.tasks.keys():
+            self.todo_list[task] = False
+
     
-    def act(self, obs: Dict, info: Dict):
-        intent = self.thinker.step(obs, info)
-        tcp_p, _ = pose_from_obs(obs['tcp_pose']) ## TCP: Tool Center Point 
-
-        if intent.use_absolute_target and intent.target_pos_world is not None:
-            dpos = self._delta_to(tcp_p, np.asarray(intent.target_pos_world, dtype=np.float32))
-
-        elif intent.dpos is not None:
-            dpos = np.asarray(intent.dpos, dtype=np.float32)
-            dpos = clamp(dpos, -self.ctrl.dpos_clip, self.ctrl.dpos_clip)
-
-        else:
-            dpos = np.zeros(3, dtype= np.float32)
-
-        drot = np.zeros(3, dtype=np.float32)
-        gripper = intent.gripper if intent.gripper is not None else 0.0451
-
-        action = np.concatenate([dpos, drot, np.array(gripper, dtype = np.float32)], axis=0)
-        return action 
 
 
     
