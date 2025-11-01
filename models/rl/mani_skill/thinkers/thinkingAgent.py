@@ -14,7 +14,7 @@ where per-step deltas are clipped to ±0.1 meters/radians per your PDEEPose cont
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Optional, Protocol, Tuple, List
+from typing import Dict, Optional, Protocol, Tuple, List, Any
 import os, sys
 import json, re
 from huggingface_hub import login, whoami
@@ -25,14 +25,8 @@ import torch.nn as nn
 import numpy as np
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-ALLOWED_TASKS = ["push", "pull", "pick", "stack"]
-TASK_SYNONYMS = {
-    "push": ["push", "pushing"],
-    "pull": ["pull", "pulling"],
-    "pick": ["pick", "pickup", "pick up", "pick-and-place", "pick & place", "pick/place"],
-    "stack": ["stack", "stacking"]
-}
+from models.rl.agents.reppo import *
+from models.rl.agents.ppo import *
 
 
 def clamp(x: np.ndarray, low: float, high: float) -> np.ndarray:
@@ -81,9 +75,9 @@ class ThinkingAgent:
     Wrap Thinking model and convert intents into low-level actions. Main body of thinker 
     """
 
-    def __init__(self, planner, actor, ctrl: Controlcfg, prompt: str,):
+    def __init__(self, planner, actor, obs_dim, action_dim, ctrl: Controlcfg, prompt: str, env: Any ,device= 'cuda'):
         self.planner = planner ## Any thinker can be here but VLA for later
-        self.actor = actor ### This is actor for performing actual action distribution
+        self.actor = actor ### This is RL actor for performing actual action distribution
         self.ctrl = ctrl
         self.tasks = self.setting_tasks(prompt) 
         self.todo_list = {}
@@ -98,6 +92,20 @@ class ThinkingAgent:
             self.todo_list[task] = False
 
     
+    def _initialize_actor(self, actor):
+        if hasattr(actor, PPOAgent):
+            self.actor = PPOAgent()
 
+    def act(self, obs, info):
+        """
+        Get action distribution from actor 
+        """
+        ...
+
+    def learn(self, env):
+        """
+        Train with the given env
+        """
+    
 
     

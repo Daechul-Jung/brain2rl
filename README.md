@@ -310,6 +310,7 @@ brain2rl/
 ├── models/                        # Model architectures
 │   ├── classification/            # Action classification models 
 │   ├── tokenization/              # Tokenizing time series data for trajectories
+│   ├── diffusion/                 # Diffusion policy module conditioned by EEG or language
 │   └── rl/                        # RL model for OpenArm and general gym env
 │       ├── agents                 # RL Agents Collection 
 │       ├── mani_skills            # Running multiple tasks with LLM and VLA with maniskill environments
