@@ -12,13 +12,13 @@ from models.rl.mani_skill.thinkers.task_thinker import *
 from models.rl.agents.ppo import PPOAgent
 from models.rl.agents.reppo import RePPOAgent
 
-def make_env(obs_mode = 'state', control_mode = 'pd_joint_delta_pos'):
+def make_env(obs_mode = 'state', control_mode = 'pd_joint_delta_pos', render_mode = 'human'):
     env = gym.make(
         'Combined-v1',
         obs_mode = obs_mode,
         control_mode = control_mode,
         robot_uids = 'so100',
-
+        render_mode = render_mode
     )
     return env
 

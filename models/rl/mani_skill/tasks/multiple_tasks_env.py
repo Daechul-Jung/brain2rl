@@ -41,19 +41,22 @@ class CombinedTaskEnv(BaseEnv):
         self.cube_spawn_center = (0,0)
         self.cube_spawn_half_size = 0.05
         self.max_goal_height = 0.3
-        if 'robot_uids' in kwargs:
-            if kwargs['robot_uids'] != robot_uids:
-                robot_uids = kwargs['robot_uids']
-            kwargs.pop('robot_uids', None)
-        super().__init__(*args, robot_uids=robot_uids,**kwargs)
-
-
-        self.stage = { ## initially using dictionary but using other data type for later
-            "push": False,
+        self.goal_thresh = 0.025
+        ## Nothing in *args
+        # print(**kwargs)
+        self.stage_flag = { ## Only true for current stage
+            "push": True,
             "pull": False,
             "pick": False,
             "stack": False,
         }
+        self.curr_stage = 'push'
+        if 'robot_uids' in kwargs:
+            if kwargs['robot_uids'] != robot_uids:
+                robot_uids = kwargs['robot_uids']
+            kwargs.pop('robot_uids', None)
+
+        super().__init__(*args, robot_uids=robot_uids,**kwargs)
 
     def _load_agent(self, options: Dict):
         """
@@ -62,18 +65,19 @@ class CombinedTaskEnv(BaseEnv):
         super()._load_agent(options, sapien.Pose(p = [-0.615, 0, 0]))
 
     def _load_scene(self, options: Dict):
-        self.cube_half_size = common.to_tensor([0.02] * 3, device= self.device)
+        self.cube_half_size = 0.05#common.to_tensor([0.02] * 3, device= self.device)
         self.table_scene = TableSceneBuilder(
             env= self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
         self.table_scene.build()
 
-        ## create cube
+        ## create cube. This is the main cup for push, pull, pick
         self.CubeA = actors.build_cube(
             self.scene, 
             half_size=0.02,
             color= [1, 0, 0, 1],
             name='CubeA',
+            body_type='dynamic',
             initial_pose=sapien.Pose(p = [0, 0, 0.1])
         )
 
@@ -86,182 +90,179 @@ class CombinedTaskEnv(BaseEnv):
             initial_pose=sapien.Pose(p = [1, 0, 0.1])
         )
 
-        self.goal_region = actors.build_red_white_target(
+        ## Goal region for pull
+        self.pull_goal_region = actors.build_red_white_target(
             self.scene,
-            radius =  self.goal_radius,
+            radius = self.goal_radius,
             thickness=1e-5,
-            name = 'goal_region',
+            name = 'pull_goal_region',
             add_collision=False,
             body_type='kinematic'
         )
 
+        ## Goal region for pick 
+        self.pick_goal_region = actors.build_sphere(
+            self.scene,
+            radius = self.goal_thresh,
+            color = [0, 1, 0, 1],
+            name = 'pick_goal_region',
+            body_type='kinematic',
+            add_collision=False,
+            initial_pose=sapien.Pose()
+        )
+        self._hidden_objects.append(self.pick_goal_region)
+
+        ## Goal region for push
+        self.push_goal_region = actors.build_red_white_target(
+            self.scene,
+            radius = self.goal_radius,
+            thickness = 1e-5,
+            name = 'push_goal_region',
+            body_type='kinematic',
+            add_collision=False,
+            initial_pose=sapien.Pose(p = [0, 0, 1e-3])
+        )
+
+    
     def evaluate(self):
         """
         Evaluate current situation and need to consider processes of tasks: algorithmize this part.
         Each evaluate function returns info whether success, is_obj_placed, is_static, is_grasped
         """
-        if self.stage['pick']:
+        if self.curr_stage == 'pick':
             info = self._evaluate_pick()
 
-        elif self.stage['pull']:
+        elif self.curr_stage == 'pull':
             info = self._evaluate_pull()
 
-        elif self.stage['push']:
+        elif self.curr_stage == 'push':
             info = self._evaluate_push()
 
         else:
             info = self._evaluate_stack()
 
-        return 
+        return info
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        if self.stage['pick']:
-            with torch.device(self.device):
-                b = len(env_idx)
-                self.table_scene.initialize(env_idx)
-                xyz = torch.zeros((b, 3))
-                xyz[:, :2] = (
-                    torch.rand((b, 2)) * self.cube_spawn_half_size * 2
-                    - self.cube_spawn_half_size
-                )
-                xyz[:, 0] += self.cube_spawn_center[0]
-                xyz[:, 1] += self.cube_spawn_center[1]
-                print(xyz, self.cube_half_size)
-                xyz[:, 2] = self.cube_half_size
-                qs = randomization.random_quaternions(b, lock_x=True, lock_y=True)
-                self.CubeA.set_pose(Pose.create_from_pq(xyz, qs))
+        """
+        Need to fix to initialize everythings at once. No need to set everythings according to the stage. It is just really setting environment
+        However, since the settings for each task are different, I need to align those
+        """
+       
 
-                goal_xyz = torch.zeros((b, 3))
-                goal_xyz[:, :2] = (
-                    torch.rand((b, 2)) * self.cube_spawn_half_size * 2
-                    - self.cube_spawn_half_size
-                )
-                goal_xyz[:, 0] += self.cube_spawn_center[0]
-                goal_xyz[:, 1] += self.cube_spawn_center[1]
-                goal_xyz[:, 2] = torch.rand((b)) * self.max_goal_height + xyz[:, 2]
-                self.goal_site.set_pose(Pose.create_from_pq(goal_xyz))
-
-        elif self.stage['pull']:
-            with torch.device(self.device):
-                b = len(env_idx)
-                self.table_scene.initialize(env_idx)
-                xyz = torch.zeros((b, 3))
-                xyz[..., :2] = torch.rand((b, 2)) * 0.2 - 0.1
-                xyz[..., 2] = self.cube_half_size
-                q = [1, 0, 0, 0]
-
-                obj_pose = Pose.create_from_pq(p=xyz, q=q)
-                self.obj.set_pose(obj_pose)
-
-                target_region_xyz = xyz - torch.tensor([0.1 + self.goal_radius, 0, 0])
-
-                target_region_xyz[..., 2] = 1e-3
-                self.goal_region.set_pose(
-                    Pose.create_from_pq(
-                        p=target_region_xyz,
-                        q=euler2quat(0, np.pi / 2, 0),
-                    )
-                )
-        elif self.stage['stack']:
-            with torch.device(self.device):
-                b = len(env_idx)
-                self.table_scene.initialize(env_idx)
-
-                xyz = torch.zeros((b, 3))
-                xyz[:, 2] = 0.02
-                xy = torch.rand((b, 2)) * 0.2 - 0.1
-                region = [[-0.1, -0.2], [0.1, 0.2]]
-                sampler = randomization.UniformPlacementSampler(
-                    bounds=region, batch_size=b, device=self.device
-                )
-                radius = torch.linalg.norm(torch.tensor([0.02, 0.02])) + 0.001
-                cubeA_xy = xy + sampler.sample(radius, 100)
-                cubeB_xy = xy + sampler.sample(radius, 100, verbose=False)
-
-                xyz[:, :2] = cubeA_xy
-                qs = randomization.random_quaternions(
-                    b,
-                    lock_x=True,
-                    lock_y=True,
-                    lock_z=False,
-                )
-                self.CubeA.set_pose(Pose.create_from_pq(p=xyz.clone(), q=qs))
-
-                xyz[:, :2] = cubeB_xy
-                qs = randomization.random_quaternions(
-                    b,
-                    lock_x=True,
-                    lock_y=True,
-                    lock_z=False,
-                )
-                self.CubeB.set_pose(Pose.create_from_pq(p=xyz, q=qs))
-
-        elif self.stage['push']:
-            with torch.device(self.device):
-                b = len(env_idx)
-                # when using scene builders, you must always call .initialize on them so they can set the correct poses of objects in the prebuilt scene
-                # note that the table scene is built such that z=0 is the surface of the table.
-                self.table_scene.initialize(env_idx)
-
-                # here we write some randomization code that randomizes the x, y position of the cube we are pushing in the range [-0.1, -0.1] to [0.1, 0.1]
-                xyz = torch.zeros((b, 3))
-                xyz[..., :2] = torch.rand((b, 2)) * 0.2 - 0.1
-                xyz[..., 2] = self.cube_half_size
-                q = [1, 0, 0, 0]
-               
-                obj_pose = Pose.create_from_pq(p=xyz, q=q)
-                self.obj.set_pose(obj_pose)
-
-                # here we set the location of that red/white target (the goal region). In particular here, we set the position to be in front of the cube
-                # and we further rotate 90 degrees on the y-axis to make the target object face up
-                target_region_xyz = xyz + torch.tensor([0.1 + self.goal_radius, 0, 0])
-                # set a little bit above 0 so the target is sitting on the table
-                target_region_xyz[..., 2] = 1e-3
-                self.goal_region.set_pose(
-                    Pose.create_from_pq(
-                        p=target_region_xyz,
-                        q=euler2quat(0, np.pi / 2, 0),
-                    )
-                )        
-    def _get_obs_extra(self):
-        obs = dict(
-            tcp_pose = self.agent.tcp.pose.raw_pose,
-            goal_pos = self.goal_region.pose.p,
-        )
-        if self.obs_mode_struct.use_state:
-            obs.update(
-                obj_pose = self.obj.pose.raw_pose
+        with torch.device(self.device):
+            b = len(env_idx)
+            self.table_scene.initialize(env_idx)
+            xyz = torch.zeros((b, 3))
+            print(xyz)
+            xyz[:, :2] = (
+                torch.rand((b, 2)) * self.cube_spawn_half_size * 2
+                - self.cube_spawn_half_size
             )
+            xyz[:, 0] += self.cube_spawn_center[0]
+            xyz[:, 1] += self.cube_spawn_center[1]
+            xyz[:, 2] = 0.02
+
+            q = [1, 0, 0, 0]
+            #### Setting target region for push
+            obj_pose = Pose.create_from_pq(p = xyz, q = q)
+            self.CubeA.set_pose(obj_pose)
+
+            push_target_region_xyz = torch.tensor([0.1+ self.goal_radius, 0, 0])
+            push_target_region_xyz[..., 2] = 1e-3 
+            self.push_goal_region.set_pose(
+                Pose.create_from_pq(
+                    p = push_target_region_xyz,
+                    q = euler2quat(0, np.pi / 2, 0),
+                )
+            )
+
+            ### Setting target region for pull
+            pull_target_region_xyz = torch.tensor([0.1+ self.goal_radius, 0, 0])
+            pull_target_region_xyz[..., 2] = 1e-3
+            self.pull_goal_region.set_pose(
+                Pose.create_from_pq(
+                    p = pull_target_region_xyz,
+                    q = euler2quat(0, np.pi/2, 0)
+                )
+            )
+
+            ### Setting target region for pick
+            qs = randomization.random_quaternions(b, lock_x = True, lock_y = True)
+            # self.CubeA.set_pose(Pose.create_from_pq(p = xyz, q = qs))
+            pick_target_region_xyz = torch.zeros((b, 3))
+            pick_target_region_xyz[:, :2] = (
+                torch.rand((b, 2)) * self.cube_spawn_half_size * 2
+                - self.cube_spawn_half_size
+            )
+
+            pick_target_region_xyz[:, 0] += self.cube_spawn_center[0]
+            pick_target_region_xyz[:, 1] += self.cube_spawn_center[1]
+            pick_target_region_xyz[:, 2] = torch.rand((b)) * self.max_goal_height + xyz[:, 2]
+            self.pick_goal_region.set_pose(Pose.create_from_pq(pick_target_region_xyz))
+
+
+            ### Setting target region for stack
+            xy = torch.rand((b, 2)) * 0.2 - 0.1
+            region = [[-0.1, -0.2], [0.1, 0.2]]
+            sampler = randomization.UniformPlacementSampler(
+                bounds=region, batch_size=b, device=self.device
+            )
+
+            radius = torch.linalg.norm(torch.tensor([0.02, 0.02])) + 0.001
+            cubeA_xy = xy + sampler.sample(radius, 100)
+            cubeB_xy = xy + sampler.sample(radius, 100, verbose=False)
+
+
+    def _get_obs_extra(self, info: dict):
+        """
+        Need to 
+        """
+        if self.stage_flag['pick']:
+            obs = self._pick_get_extra_obs(info)
+
+        elif self.stage_flag['push']:
+            obs = self._push_get_extra_obs(info)
+
+        elif self.stage_flag['pull']:
+            obs = self._pull_get_extra_obs(info)
+
+        elif self.stage_flag['stack']:
+            obs = self._stack_get_extra_obs(info)
+
         return obs
     
-    def _compute_dense_reward(self, obs, action, info):
+    def compute_dense_reward(self, obs, action, info):
         """
         Checking the stage and calculating the rewards based on the stage. I would use just dense rewards rather than normalized one
         If the stage supposed to do is not completed but the agent tries to do other tasks, give them penalty
         Do I need to set reward to consider complete tasks in the right sequences? maybe yse, but how
         """
         rewards = 0
-        if info['stage'] == 'pull':
+        if self.stage_flag['pull']:
             rewards = self._compute_dense_reward_pull(obs, action, info)
         
-        elif info['stage'] == 'push':
+        elif self.stage_flag['push']:
             rewards = self._compute_dense_reward_push(obs, action, info)
 
-        elif info['stage'] == 'pick':
+        elif self.stage_flag['pick']:
             rewards = self._compute_dense_reward_pick(obs, action, info)
 
-        elif info['stage'] == 'stack':
+        elif self.stage_flag['stack']:
             rewards = self._compute_dense_reward_stack(obs, action, info)
             
         return rewards
 
+    def compute_normalized_dense_reward(self, obs: Any, action: torch.Tensor, info: dict):
+        return self.compute_dense_reward(obs, action, info) / 4
+
     ######## From maniskill document ###################
     def _evaluate_pick(self):
         is_obj_placed = (
-            torch.linalg.norm(self.goal_site.pose.p - self.cube.pose.p, axis=1)
+            torch.linalg.norm(self.pick_goal_region.pose.p - self.CubeA.pose.p, axis=1)
             <= self.goal_thresh
         )
-        is_grasped = self.agent.is_grasping(self.cube)
+        is_grasped = self.agent.is_grasping(self.CubeA)
         is_robot_static = self.agent.is_static(0.2)
         return {
             "success": is_obj_placed & is_robot_static,
@@ -273,7 +274,7 @@ class CombinedTaskEnv(BaseEnv):
     def _evaluate_pull(self):
         is_obj_placed = (
             torch.linalg.norm(
-                self.obj.pose.p[..., :2] - self.goal_region.pose.p[..., :2], axis=1
+                self.CubeA.pose.p[..., :2] - self.pull_goal_region.pose.p[..., :2], axis=1
             )
             < self.goal_radius
         )
@@ -285,18 +286,18 @@ class CombinedTaskEnv(BaseEnv):
     def _evaluate_push(self):
         is_obj_placed = (
             torch.linalg.norm(
-                self.obj.pose.p[..., :2] - self.goal_region.pose.p[..., :2], axis=1
+                self.CubeA.pose.p[..., :2] - self.push_goal_region.pose.p[..., :2], axis=1
             )
             < self.goal_radius
-        ) & (self.obj.pose.p[..., 2] < self.cube_half_size + 5e-3)
+        ) & (self.CubeA.pose.p[..., 2] < self.cube_half_size + 5e-3)
 
         return {
             "success": is_obj_placed,
         }
 
     def _evaluate_stack(self):
-        pos_A = self.cubeA.pose.p
-        pos_B = self.cubeB.pose.p
+        pos_A = self.CubeA.pose.p
+        pos_B = self.CubeB.pose.p
         offset = pos_A - pos_B
         xy_flag = (
             torch.linalg.norm(offset[..., :2], axis=1)
@@ -305,8 +306,8 @@ class CombinedTaskEnv(BaseEnv):
         z_flag = torch.abs(offset[..., 2] - self.cube_half_size[..., 2] * 2) <= 0.005
         is_cubeA_on_cubeB = torch.logical_and(xy_flag, z_flag)
         # NOTE (stao): GPU sim can be fast but unstable. Angular velocity is rather high despite it not really rotating
-        is_cubeA_static = self.cubeA.is_static(lin_thresh=1e-2, ang_thresh=0.5)
-        is_cubeA_grasped = self.agent.is_grasping(self.cubeA)
+        is_cubeA_static = self.CubeA.is_static(lin_thresh=1e-2, ang_thresh=0.5)
+        is_cubeA_grasped = self.agent.is_grasping(self.CubeA)
         success = is_cubeA_on_cubeB * is_cubeA_static * (~is_cubeA_grasped)
         return {
             "is_cubeA_grasped": is_cubeA_grasped,
@@ -317,7 +318,7 @@ class CombinedTaskEnv(BaseEnv):
 
     def _compute_dense_reward_pick(self, obs, action, info):
         tcp_to_obj_dist = torch.linalg.norm(
-            self.cube.pose.p - self.agent.tcp_pose.p, axis=1
+            self.CubeA.pose.p - self.agent.tcp_pose.p, axis=1
         )
         reaching_reward = 1 - torch.tanh(5 * tcp_to_obj_dist)
         reward = reaching_reward
@@ -326,7 +327,7 @@ class CombinedTaskEnv(BaseEnv):
         reward += is_grasped
 
         obj_to_goal_dist = torch.linalg.norm(
-            self.goal_site.pose.p - self.cube.pose.p, axis=1
+            self.pick_goal_region.pose.p - self.CubeA.pose.p, axis=1
         )
         place_reward = 1 - torch.tanh(5 * obj_to_goal_dist)
         reward += place_reward * is_grasped
@@ -344,10 +345,10 @@ class CombinedTaskEnv(BaseEnv):
 
     def _compute_dense_reward_push(self, obs, action, info):
         tcp_push_pose = Pose.create_from_pq(
-            p=self.obj.pose.p
+            p=self.CubeA.pose.p
             + torch.tensor([-self.cube_half_size - 0.005, 0, 0], device=self.device)
         )
-        tcp_to_push_pose = tcp_push_pose.p - self.agent.tcp.pose.p
+        tcp_to_push_pose = tcp_push_pose.p - self.agent.tcp_pose.p
         tcp_to_push_pose_dist = torch.linalg.norm(tcp_to_push_pose, axis=1)
         reaching_reward = 1 - torch.tanh(5 * tcp_to_push_pose_dist)
         reward = reaching_reward
@@ -357,14 +358,14 @@ class CombinedTaskEnv(BaseEnv):
         # This reward design helps train RL agents faster by staging the reward out.
         reached = tcp_to_push_pose_dist < 0.01
         obj_to_goal_dist = torch.linalg.norm(
-            self.obj.pose.p[..., :2] - self.goal_region.pose.p[..., :2], axis=1
+            self.CubeA.pose.p[..., :2] - self.push_goal_region.pose.p[..., :2], axis=1
         )
         place_reward = 1 - torch.tanh(5 * obj_to_goal_dist)
         reward += place_reward * reached
 
         # Compute a z reward to encourage the robot to keep the cube on the table
         desired_obj_z = self.cube_half_size
-        current_obj_z = self.obj.pose.p[..., 2]
+        current_obj_z = self.CubeA.pose.p[..., 2]
         z_deviation = torch.abs(current_obj_z - desired_obj_z)
         z_reward = 1 - torch.tanh(5 * z_deviation)
         # We multiply the z reward by the place_reward and reached mask so that
@@ -377,7 +378,7 @@ class CombinedTaskEnv(BaseEnv):
         return reward
 
     def _compute_dense_reward_pull(self, obs, action, info):
-        tcp_pull_pos = self.obj.pose.p + torch.tensor(
+        tcp_pull_pos = self.CubeA.pose.p + torch.tensor(
             [self.cube_half_size + 2 * 0.005, 0, 0], device=self.device
         )
         tcp_to_pull_pose = tcp_pull_pos - self.agent.tcp.pose.p
@@ -387,7 +388,7 @@ class CombinedTaskEnv(BaseEnv):
 
         reached = tcp_to_pull_pose_dist < 0.01
         obj_to_goal_dist = torch.linalg.norm(
-            self.obj.pose.p[..., :2] - self.goal_region.pose.p[..., :2], axis=1
+            self.CubeA.pose.p[..., :2] - self.pull_goal_region.pose.p[..., :2], axis=1
         )
         place_reward = 1 - torch.tanh(5 * obj_to_goal_dist)
         reward += place_reward * reached
@@ -432,3 +433,51 @@ class CombinedTaskEnv(BaseEnv):
 
         return reward
     
+    def _pick_get_extra_obs(self, info: dict):
+        obs = dict(
+            is_grasped = info['is_grasped'],
+            tcp_pose = self.agent.tcp_pose.raw_pose,
+            goal_pos = self.pick_goal_region.pose.p
+        )
+        if 'state' in self.obs_mode:
+            obs.update(
+                obj_pose = self.CubeA.pose.raw_pose,
+                tcp_to_obj_pos = self.CubeA.pose.p - self.agent.tcp_pose.p,
+                obj_to_goal_pos = self.pick_goal_region.pose.p - self.CubeA.pose.p
+            )
+
+        return obs
+    
+    def _pull_get_extra_obs(self, info: dict):
+        obs = dict(
+            tcp_pose = self.agent.tcp_pose.raw_pose,
+            goal_pos = self.pull_goal_region.pose.p
+        )
+        if self.obs_mode_struct.use_state:
+            obs.update(
+                obj_pose = self.CubeA.pose.raw_pose
+            )
+        return obs
+    
+    def _push_get_extra_obs(self, info: dict):
+        obs = dict(
+            tcp_pose = self.agent.tcp_pose.raw_pose
+        )
+        if self.obs_mode_struct.use_state:
+            obs.update(
+                goal_pos = self.push_goal_region.pose.p,
+                obj_pose = self.CubeA.pose.raw_pose
+            )
+        return obs
+    
+    def _stack_get_extra_obs(self, info: dict):
+        obs = dict(tcp_pose=self.agent.tcp_pose.raw_pose)
+        if "state" in self.obs_mode:
+            obs.update(
+                cubeA_pose=self.CubeA.pose.raw_pose,
+                cubeB_pose=self.CubeB.pose.raw_pose,
+                tcp_to_cubeA_pos=self.CubeA.pose.p - self.agent.tcp.pose.p,
+                tcp_to_cubeB_pos=self.CubeB.pose.p - self.agent.tcp.pose.p,
+                cubeA_to_cubeB_pos=self.CubeB.pose.p - self.CubeA.pose.p,
+            )
+        return obs

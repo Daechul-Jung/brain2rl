@@ -80,9 +80,7 @@ class TaskPlannerLLM:
         # Try strict JSON first
         try:
             parsed = json.loads(out)
-            # sanitize: filter unknown keys, reindex to 1..n in order of priority
             items = [(k, v) for k, v in parsed.items() if normalize_task(k) in allowed]
-            # sort by provided value; if ties, keep input order
             items.sort(key=lambda kv: (int(kv[1]),))
             # rebuild with canonical keys and 1..n indexing
             ordered_unique = []
@@ -94,7 +92,6 @@ class TaskPlannerLLM:
                     seen.add(canon)
             return {task: i + 1 for i, task in enumerate(ordered_unique)} or heuristic_parse(nl_instruction, allowed)
         except Exception:
-            # Fallback if model didn't return valid JSON
             return heuristic_parse(nl_instruction, allowed)
 
 # --- Example usage ---
