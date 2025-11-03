@@ -39,6 +39,7 @@ def main():
     ppo_actor = PPOAgent
     action_dim = env.action_space
     obs_dim = env.observation_space
+    
     agent = ThinkingAgent(planner, vla_actor, obs_dim, action_dim, instruction, env, device)
     
     agent.learn(env)

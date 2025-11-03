@@ -77,7 +77,8 @@ class ThinkingAgent:
 
     def __init__(self, planner, actor, obs_dim, action_dim, ctrl: Controlcfg, prompt: str, env: Any ,device= 'cuda'):
         self.planner = planner ## Any thinker can be here but VLA for later
-        self.actor = actor ### This is RL actor for performing actual action distribution
+        self.actor = actor(obs_dim, action_dim) ### This is RL actor for performing actual action distribution
+
         self.ctrl = ctrl
         self.tasks = self.setting_tasks(prompt) 
         self.todo_list = {}
@@ -102,10 +103,8 @@ class ThinkingAgent:
         """
         ...
 
-    def learn(self, env):
+    def learn(self, env, total_step = 200000):
         """
         Train with the given env
         """
-    
-
-    
+      

@@ -30,6 +30,7 @@ def preview_gui():
     os.environ.pop("PYOPENGL_PLATFORM", None)
 
     env = make_env(render_mode="human")
+    print(env.action_space, env.observation_space)
     obs, info = env.reset(seed=0)
     print("Robot:", env.unwrapped.robot_uids)
     ua = env.unwrapped

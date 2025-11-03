@@ -58,6 +58,15 @@ class CombinedTaskEnv(BaseEnv):
 
         super().__init__(*args, robot_uids=robot_uids,**kwargs)
 
+    @property
+    def _default_sensor_config(self):
+        pose = look_at(eye= [0.3, 0, 0.6], target= [-0.1, 0, 0.1])
+        return [CameraConfig('base_camera', pose, 128, 128, np.pi/2, 0.01, 100)]
+    @ property
+    def _default_human_render_camera_configs(self):
+        pose = look_at(eye = [0.6, 0.7, 0.6], target=[0.0, 0.0, 0.35])
+        return [CameraConfig('base_camera', pose, 512, 512, 1, 0.01, 100)]
+
     def _load_agent(self, options: Dict):
         """
         Load the agent. However, think about how to replace this with VLA or my own model 

@@ -151,6 +151,9 @@ python3 models/rl/launch/try_gym.py \
     --sim mujoco \
     --mjcf external/openarm_mujoco/v1/scene.xml \
     --render --steps 1000
+
+# Run multiple tasks with language inputs and think about what to do sequentially
+python3 models/rl/mani_skill/scripts/launch.py
 ```
 
 ### 4. Main Pipeline Orchestrator
