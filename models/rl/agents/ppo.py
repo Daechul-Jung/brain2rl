@@ -236,6 +236,7 @@ class PPOAgent:
             'value_loss': total_value_loss / self.K_epochs,
             'mean_return': returns.mean().item()
         }
+    
     def updateWithBuffer(self):
         data = self.buffer.get()
         

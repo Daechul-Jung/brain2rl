@@ -78,11 +78,13 @@ class ThinkingAgent:
     def __init__(self, planner, actor, obs_dim, action_dim, ctrl: Controlcfg, prompt: str, env: Any ,device= 'cuda'):
         self.planner = planner ## Any thinker can be here but VLA for later
         self.actor = actor(obs_dim, action_dim) ### This is RL actor for performing actual action distribution
-
+        self.device = device
         self.ctrl = ctrl
+        self.env = env
         self.tasks = self.setting_tasks(prompt) 
         self.todo_list = {}
         self.setting_todo_list()
+        self.actor = self._initialize_actor(actor)
 
     def setting_tasks(self, prompt):
         plan = self.planner.plan(prompt)
@@ -92,19 +94,39 @@ class ThinkingAgent:
         for task in self.tasks.keys():
             self.todo_list[task] = False
 
-    
+
     def _initialize_actor(self, actor):
+        obs_dim = self.env.action_space.shape[0]
+        action_dim = self.env.observation_space.shape[0]
+
         if hasattr(actor, PPOAgent):
             self.actor = PPOAgent()
 
-    def act(self, obs, info):
+        elif hasattr(actor, RePPOAgent):
+            self.actor = RePPOAgent(obs_dim, action_dim, device= self.device)
+
+
+    def act(self, obs, info, train = True):
         """
         Get action distribution from actor 
         """
-        ...
+        
 
-    def learn(self, env, total_step = 200000):
+    def learn(self, env, total_steps = 200000, num_step = 128, num_epoch = 16, num_mini_batch = 8):
         """
         Train with the given env
         """
-      
+        N_envs = getattr(env, 'num_envs', 1)
+        batch_size = (N_envs * num_step)
+        total_updates = total_steps * 10 // (N_envs * num_step) + 1
+        
+        eval_interval = max(1, total_updates // 5)
+        reset_return, info = env.reset()
+        observation = reset_return[0]
+
+
+        if hasattr(env.action_space, 'low') and isinstance(env.action_space, gym.spaces.Box):
+            low, high = env.action_space.low, env.action_space.high 
+
+    def _episode_stats_from_rollout(transition):
+        return 

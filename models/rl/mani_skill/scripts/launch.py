@@ -42,7 +42,7 @@ def main():
     
     agent = ThinkingAgent(planner, vla_actor, obs_dim, action_dim, instruction, env, device)
     
-    agent.learn(env)
+    agent.learn(total_steps=200000, num_step=128, num_epoch=16)
 
     return 
 
