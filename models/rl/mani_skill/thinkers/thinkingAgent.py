@@ -110,7 +110,8 @@ class ThinkingAgent:
         """
         Get action distribution from actor 
         """
-        
+        if not train:
+            self.actor
 
     def learn(self, env, total_steps = 200000, num_step = 128, num_epoch = 16, num_mini_batch = 8):
         """
