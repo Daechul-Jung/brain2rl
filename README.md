@@ -318,6 +318,7 @@ brain2rl/
 │       ├── agents                 # RL Agents Collection 
 │       ├── mani_skills            # Running multiple tasks with LLM and VLA with maniskill environments
 |       ├── launch                 # code for launching with env
+|       ├── vla                    # VLA model practicing from the scratch (Based on octo model, but in torch version)
 |       ├── env                    # environment for mujoco(OpenArm, Maniskill, )
 │       └── utils                  # Colection of Neural network and Actor-Critic network and any other utilities.
 |── scripts/

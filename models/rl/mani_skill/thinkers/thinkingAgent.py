@@ -100,11 +100,13 @@ class ThinkingAgent:
         action_dim = self.env.observation_space.shape[0]
 
         if hasattr(actor, PPOAgent):
-            self.actor = PPOAgent()
+            self.actor = PPOAgent(observation_dim=obs_dim, action_dim=action_dim, device = self.device)
 
         elif hasattr(actor, RePPOAgent):
             self.actor = RePPOAgent(obs_dim, action_dim, device= self.device)
 
+        else:
+            self.actor = actor
 
     def act(self, obs, info, train = True):
         """
@@ -124,7 +126,6 @@ class ThinkingAgent:
         eval_interval = max(1, total_updates // 5)
         reset_return, info = env.reset()
         observation = reset_return[0]
-
 
         if hasattr(env.action_space, 'low') and isinstance(env.action_space, gym.spaces.Box):
             low, high = env.action_space.low, env.action_space.high 
