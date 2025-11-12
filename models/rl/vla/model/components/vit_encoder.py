@@ -311,8 +311,97 @@ class ViTResNet(nn.Module):
     
     There exist pre-trained parameters here: github.com/google-research/vision_transformer/
     """
-    def __init__(self, use_film: bool = False, width: int = 1, num_layers: tuple = tuple(), img_norm_type: str = 'default'):
-        self.use_flim = use_film
+    def __init__(self, 
+                 use_film: bool = False, 
+                 width: int = 1, 
+                 num_layers: tuple = tuple(), 
+                 img_norm_type: str = 'default',
+                 cond_dim: Optional[int] = None,
+                 in_channels: int = 3,
+                 use_weight_standardized_conv: bool = True):
+        super().__init__()
+        self.use_film = use_film
         self.width = width
         self.num_layers = num_layers
         self.img_norm_type = img_norm_type
+        
+        Conv = StdConv2d if use_weight_standardized_conv else nn.Conv2d
+        C = int(64 * width)
+        self.conv1 = Conv(in_channels=in_channels, out_channels=C, kernel_size=7, stride=2, padding=3, bias = False)
+        self.gn_root = DynamicGroupNorm(num_channels=C) 
+        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        
+        self.stages = nn.ModuleList()
+        if self.num_layers:
+            block1 = ResNetStage(block_size=self.num_layers[0], n_out=C, first_stride=1, use_weight_standardized_conv=use_weight_standardized_conv)
+            self.stages.append(block1)
+            for i, block_size in enumerate(self.num_layers[1:], 1):
+                self.stages.append(
+                    ResNetStage(block_size=block_size, n_out=C*2**i, first_stride=2, use_weight_standardized_conv=use_weight_standardized_conv)
+                )
+                if self.use_film:
+                     self.film = FilmConditioning(cond_dim, None)
+                else: 
+                    self.film = None
+                    
+            
+    def forward(self, observation: torch.Tensor, train: bool = True, cond_var = None):
+        expecting_cond_var = self.use_film
+        received_cond_var = cond_var is not None
+        assert (
+            expecting_cond_var == received_cond_var
+        ), 'Only pass in cond var iff model expecting cond var'
+        
+        x = normalize_image(observation, self.img_norm_type)
+        x = self.conv1(x)
+        x = self.gn_root(x)
+        x = F.relu(x, inplace= True)
+        x = self.pool(x)
+        
+        if len(self.num_layers) > 0:
+            for i, stage in enumerate(self.stages):
+                x = stage(x)
+                if self.use_film and i == len(self.num_layers) - 1:
+                    x = self.film(x, cond_var)
+                    
+        else: 
+            if self.use_film:
+                x = self.film(x, cond_var)
+                
+        return x
+    
+    
+class SmallStem16(SmallStem):
+    def __init__(self, **kwargs):
+        super().__init__(patch_size=16, **kwargs)
+
+class SmallStem32(SmallStem):
+    def __init__(self, **kwargs):
+        super().__init__(patch_size=32, **kwargs)
+
+class ResNet26FILM(ViTResNet):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("use_film", True)
+        kwargs.setdefault("num_layers", (2, 2, 2, 2))
+        super().__init__(**kwargs)
+
+vit_encoder_configs = {
+    "patchify-32-film": ft.partial(PatchEncoder, use_film=True, patch_size=32),
+    "patchify-16-film": ft.partial(PatchEncoder, use_film=True, patch_size=16),
+
+    "small-stem-8-film": ft.partial(
+        SmallStem,
+        use_film=True,
+        patch_size=16,
+        kernel_sizes=(3, 3, 3),
+        strides=(2, 2, 2),
+        features=(32, 96, 192),
+        padding=(1, 1, 1),
+    ),
+    "small-stem-16": ft.partial(SmallStem, patch_size=16),
+    "small-stem-16-film": ft.partial(SmallStem, use_film=True, patch_size=16),
+    "small-stem-32-film": ft.partial(SmallStem, use_film=True, patch_size=32),
+
+    "resnetv2-26-film": ft.partial(ViTResNet, use_film=True, num_layers=(2, 2, 2, 2)),
+    "resnetv2-50-film": ft.partial(ViTResNet, use_film=True, num_layers=(3, 4, 6, 3)),
+}
