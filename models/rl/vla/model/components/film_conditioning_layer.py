@@ -11,7 +11,7 @@ from typing import Literal
 class FilmConditioning(nn.Module):
     """
     FiLM: Feature-Wise Linear Modulation. Simple way to inject a conditioning signal such as text and etc into a network by scaling and shifting its intermediate features  
-    Applies FiLM conditioning to a convolutional feature map
+    Applies FiLM conditioning to a convolutional feature map. One way to condition one feature vector or tensor on another. 
 
     Args:
         conv_filters: A tensor of shape [batch_size, height, width, channels].
@@ -46,16 +46,19 @@ class FilmConditioning(nn.Module):
 
     def forward(self, conv_filter: torch.Tensor, conditioning: torch.Tensor):
         """
-        conv_filters: [B, C, H, W] if NCHW, or [B, H, W, C] if NHWC
-        conditioning: [B, cond_dim]
-        returns: same shape as conv_filters
+        conv_filters: [B, C, H, W] if NCHW, or [B, H, W, C] if NHWC -> Data that the model would condition 
+        conditioning: [B, cond_dim] -> Conditioning vector 
+
+        returns: same shape as conv_filters which is [batch_size, channels, heigth, weight] for pytorch and [batch_size, height, weight, channels] for jax 
         """
 
+        ### build channels after getting input to know the dimensionality of it 
         if self.channels is None:
             C = conv_filter.shape[1] if self.data_format == 'NCHW' else conv_filter.shape[-1]
             self.channels = C
             self._build_linear(C)
 
+        ## putting them into linear model 
         project_cond_add = self.projected_cond_add(conditioning) ## shape: [B, C]
         project_cond_mult = self.projected_cond_mult(conditioning) ## shape: [B, C]
 
@@ -67,4 +70,5 @@ class FilmConditioning(nn.Module):
             project_cond_add = project_cond_add.unsqueeze(1).unsqueeze(1) ## [B, 1, 1, C]
             project_cond_mult = project_cond_mult.unsqueeze(1).unsqueeze(1) 
 
+        ### 
         return conditioning * (1 + project_cond_add) + project_cond_mult

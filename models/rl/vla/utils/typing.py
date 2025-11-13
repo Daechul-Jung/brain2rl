@@ -10,6 +10,5 @@ Config = Union[Any, Mapping[str, "Config"]]
 Params = Mapping[str, PyTree]
 Data   = Mapping[str, PyTree]
 
-# Shapes and dtypes
 Shape = Sequence[int]
 Dtype = torch.dtype

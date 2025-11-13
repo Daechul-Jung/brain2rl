@@ -280,7 +280,7 @@ class ResidualUnit(nn.Module):
         
         y = self.conv3(y)
         y = self.gn3(y)
-        
+        ## After passing processes, combining with residual then take ReLU
         return F.relu(y + residual, inplace=True)
     
 
@@ -295,7 +295,7 @@ class ResNetStage(nn.Module):
         self.blocks = nn.ModuleList()
         self.blocks.append(ResidualUnit(n_out, self.first_stride, use_weight_standardized_conv))
         for _ in range(1, block_size):
-            self.blocks.append(ResidualUnit(n_out, strides = (1,1)))
+            self.blocks.append(ResidualUnit(n_out, strides = (1,1), use_weight_standardized_conv= use_weight_standardized_conv))
         
     def forward(self, x):
         for b in self.blocks:
@@ -345,7 +345,7 @@ class ViTResNet(nn.Module):
                     self.film = None
                     
             
-    def forward(self, observation: torch.Tensor, train: bool = True, cond_var = None):
+    def forward(self, observation: torch.Tensor, cond_var = None, train: bool = True):
         expecting_cond_var = self.use_film
         received_cond_var = cond_var is not None
         assert (
