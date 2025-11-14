@@ -109,6 +109,7 @@ class ConditionalResidualBlock1d(nn.Module):
     Use Conv1dBlock(conv1d -> groupNorm -> mish)
     Put x into block1 and also put condtion vector into cond_mlp for embedding and then combine with output from block1 and embedded condtion vector
     Then put those into block2 and finally combine with residual 
+    Simply Conv1dBlock -> cond_mlp -> Conv1dBlock
     """
     def __init__(self, features, kernel_size: int = 3, n_groups: int = 8, residual_proj: bool= False, cond_dim: int = 128):
         super().__init__()
@@ -144,13 +145,13 @@ class ConditionalResidualBlock1d(nn.Module):
 
         return x + residual
     
-class ConditionalUnet1D(nn.Module):
+class ConditionalUnet1D(nn.Module): 
     """
     Conditional Unet1D 
     Utilize 
         SinusoidalPosEmd:
         time_mlp1,2: 
-        down_block1,2: 
+        down_block1,2: ConditionalResidualBlock1D which include Conv1dBlock but use nn.Conv1d for residual 
         down and up sample: Up(Down)Sample1D
     """
     def __init__(self, down_features:Tuple[int] = (256, 512, 1024), mid_layer: int = 2, kernel_size: int = 3, n_groups: int = 8, time_features: int = 256):
