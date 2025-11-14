@@ -33,3 +33,8 @@ class SinusoidalPosEmb(nn.Module):
         args = x[..., None] * freq
         embedding = torch.concat((torch.sin(args), torch.cos(args)), dim = -1)
         return embedding
+    
+
+class DownSample1d(nn.Module):
+    def __init__(self, features: int):
+        super().__init__()

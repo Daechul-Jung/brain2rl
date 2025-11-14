@@ -52,9 +52,13 @@ class UNetDenoiser(nn.Module):
         Returns:
             eps_prediction: (B, H, action_dim)
         """
+        B, H, A = x.shape
+        x = x.transpose(1, 2).contiguous() ## (B, A, H)
+
         time_emb = timestep_embedding(t, self._time_dim)
         time_emb = self.time_mlp(time_emb)
-
+        
+        ## projecting condition vector on NN and apply SiLU
         cond_emb = self.cond_proj(cond_vec) if (self.cond_proj is not None and cond_vec is not None) else None
 
         x = self.in_conv(x)

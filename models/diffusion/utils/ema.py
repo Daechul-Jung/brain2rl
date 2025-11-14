@@ -16,4 +16,4 @@ class EMA:
                     self.shadow[k].mul_(self.decay).add_(v.detach(), alpha= 1- self.decay)
 
     def copy_to(self, model:nn.Module):
-        model.state_dict({**model.state_dict(), **self.shadow})
+        model.load_state_dict({**model.state_dict(), **self.shadow}, strict=False)
