@@ -36,9 +36,10 @@ class AddPositionEmbs(nn.Module):
 
 class MlpBlock(nn.Module):
     """
-    Transformer MLP / feed-forward block.
+    Transformer MLP / feed-forward block. 
+    Fully connected layers -> gelu -> dropout -> fully connected layers -> dropout 
     """
-    def __init__(self, mlp_dim: int, 
+    def __init__(self, mlp_dim:Optional[int], 
                  dtype: Dtype = torch.float32, 
                  out_dim: Optional[int] = None,
                  dropout_rate: float = 0.1,
@@ -51,6 +52,7 @@ class MlpBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.fc1 = nn.Linear(-1, -1)
         self.fc2 = nn.Linear(-1, -1)
+        self._lazy_build = False
 
     def _build(self, D_in: int):
         """
@@ -70,7 +72,9 @@ class MlpBlock(nn.Module):
         Assume input shape is [B, T, D]
         """
         D_in = inputs.shape[-1]
-        self._build(D_in)
+        if not self._lazy_build:
+            self._build(D_in)
+            self._lazy_build = True
         x = self.fc1(inputs)
         x = F.gelu(x)
         x = self.dropout(x) if not deterministic else x
@@ -83,11 +87,11 @@ class MlpBlock(nn.Module):
 class MAPHead(nn.Module):
     """
     Multihead Attention Pooling.
-
+    Attention -> layer norm -> add attention output and layer normed attention output and then reshape
     From https://github.com/google-research/big_vision/blob/main/big_vision/models/vit.py
     """
 
-    def __init__(self, mlp_dim: int, num_heads: int = 8, num_readout: int = 1, dropout: float = 0.1):
+    def __init__(self, mlp_dim: Optional[int] = None, num_heads: int = 8, num_readout: int = 1, dropout: float = 0.1):
         super().__init__()
         self.mlp_dim = mlp_dim
         self.num_heads = num_heads
@@ -103,6 +107,8 @@ class MAPHead(nn.Module):
         """
         Build lazy model 
         """
+        if self.mlp_dim is None:
+            self.mlp_dim = d_model * 4
         self.attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=self.num_heads, dropout=self.dropout, batch_first=True)
         self.probe = nn.Parameter(torch.empty(1, self.num_readout, d_model))
         nn.init.xavier_uniform_(self.probe)
