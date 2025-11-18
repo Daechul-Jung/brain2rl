@@ -94,7 +94,8 @@ class ImageTokenizer(nn.Module):
                  conditioning_type:str = None, 
                  obs_stack_keys: Sequence[str] = ('image_.*', 'depth_.*'),
                  task_stack_keys: Sequence[str] = tuple(),
-                 task_film_keys: Sequence[str] = tuple()
+                 task_film_keys: Sequence[str] = tuple(),
+                 proper_pad_mask: bool = True
                 ):
         super().__init__()
         self.encoder = encoder
@@ -104,9 +105,9 @@ class ImageTokenizer(nn.Module):
         self.obs_stack_keys = obs_stack_keys
         self.task_stack_keys = task_stack_keys
         self.task_film_keys = task_film_keys
+        self.proper_pad_mask = proper_pad_mask
 
-
-    def forward(self, observation: torch.Tensor, 
+    def forward(self, observations, 
                 tasks = None, train: bool = True):
         
         def extract_inputs(keys, inputs, check_spatial = False):
@@ -116,3 +117,35 @@ class ImageTokenizer(nn.Module):
                     assert len(inputs[key].shape) >= 4
                 extracted_outputs.append(inputs[key])            
             return torch.concatenate(extracted_outputs, dim = -1)
+        
+        obs_stack_keys = regex_filter(self.obs_stack_keys, sorted(observations.keys()))
+        if len(obs_stack_keys) == 0:
+            logging.info(
+                f'No image inputs matching {self.obs_stack_keys} were found'
+                'Skipping tokenizer entirely'
+            )
+            assert self.proper_pad_mask, "Cannot skip unless using proper_pad_mask"
+            return None
+        
+        ## Stack all spatial observation and task inputs
+        enc_inputs = extract_inputs(self.task_stack_keys, observations, True)
+        if self.task_stack_keys:
+            needed_task_key = regex_filter(self.task_stack_keys, observations.keys())
+            ## if any task inputs are missing, replace with zero padding (TODO: more flexible)
+            for key in needed_task_key:
+                if key not in tasks:
+                    logging.info(
+                        f'No task inputs matching {key} were found. Replacing with zero padding'
+                    )
+                    tasks[key] = torch.zeros_like(observations[key][:, 0]) ## [B, H, W, C]
+            task_stack_keys = regex_filter(self.task_stack_keys, sorted(tasks.keys()))
+            if len(task_stack_keys) == 0:
+                raise ValueError(
+                    f'No task inputs are matching {self.task_stack_keys} were found'
+                )
+            task_inputs = extract_inputs(task_stack_keys, tasks, True)
+            task_inputs = task_inputs[:, None].repeat(enc_inputs.shape[1], dim = 1)
+
+            enc_inputs = torch.concatenate([enc_inputs, task_inputs], dim = -1)
+
+        b, t, h, w, c = enc_inputs.shape 
