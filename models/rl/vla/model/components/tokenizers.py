@@ -149,3 +149,5 @@ class ImageTokenizer(nn.Module):
             enc_inputs = torch.concatenate([enc_inputs, task_inputs], dim = -1)
 
         b, t, h, w, c = enc_inputs.shape 
+        encoder_def =   ModuleSpec.instantiate(self.num_tokens)()
+        iamge_tokens = encoder_def(enc_inputs, **enc_inputs_kwargs)

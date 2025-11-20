@@ -45,6 +45,7 @@ class MlpBlock(nn.Module):
                  dropout_rate: float = 0.1,
                  kernel_init: Callable[[PRNGkey, Shape, Dtype], torch.Tensor]= nn.init.xavier_uniform(),
                  bias_init: Callable[[PRNGkey, Shape, Dtype], torch.Tensor]= nn.init.normal(std=1e-6)):
+        
         super().__init__()
         self.mlp_dim = mlp_dim
         self.dtype = dtype
