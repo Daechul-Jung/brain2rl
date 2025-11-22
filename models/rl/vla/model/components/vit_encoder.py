@@ -346,6 +346,9 @@ class ViTResNet(nn.Module):
                     
             
     def forward(self, observation: torch.Tensor, cond_var = None, train: bool = True):
+        """
+        Normalize iamge -> conv -> groupNorm -> relu -> pooling -> (optional film conditioning)
+        """
         expecting_cond_var = self.use_film
         received_cond_var = cond_var is not None
         assert (

@@ -12,6 +12,7 @@ class FilmConditioning(nn.Module):
     """
     FiLM: Feature-Wise Linear Modulation. Simple way to inject a conditioning signal such as text and etc into a network by scaling and shifting its intermediate features  
     Applies FiLM conditioning to a convolutional feature map. One way to condition one feature vector or tensor on another. 
+    Using Linear layers for adding and multiplication part, put conv filter which is data that the model would condition based on 
 
     Args:
         conv_filters: A tensor of shape [batch_size, height, width, channels].
@@ -71,4 +72,4 @@ class FilmConditioning(nn.Module):
             project_cond_mult = project_cond_mult.unsqueeze(1).unsqueeze(1) 
 
         ### 
-        return conditioning * (1 + project_cond_add) + project_cond_mult
+        return conv_filter * (1 + project_cond_add) + project_cond_mult

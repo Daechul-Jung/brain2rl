@@ -197,8 +197,9 @@ class Encoder1DBlock(nn.MOdule):
 
     def forward(self, inputs: torch.Tensor, attention_mask: Optional[torch.Tensor], *, deterministic: bool):
         """
-        Applies Encoder1DBlock module
+        Applies Encoder1DBlock module used for Transformer
 
+        LayerNorm -> attention -> dropout -> (attn_out + original input) -> second layerNorm -> mlp block
         Args:
             inputs: inputs to the layer
             deterministic: Dropout will not be applied when set to True
@@ -261,6 +262,9 @@ class Transformer(nn.Module):
     def forward(self, x: torch.Tensor, attention_mask: Optional[torch.Tensor], *, train: bool):
         """
         Applies Transformer model on the inputs
+
+        Create moduleList of Encoder1DBlock(having multihead attention in here)
+        positional embedding -> block passing -> layer norm
         Args:
             x: Inputs to the layer 
             train: Set to True when training

@@ -24,14 +24,16 @@ def generate_proper_pad_mask(
     if pad_mask_dict is None:
         logging.warning("No pad_mask_dict found. Nothing will be masked")
         return torch.ones(tokens.shape[:-1])
+    ## check every keys are in the pad mask key dictionary
     if not all([key in pad_mask_dict for key in keys]):
         logging.warning(
             f"pad_mask_dict missing keys {set(keys) - set(pad_mask_dict.keys())}"
             "Nothing will be masked"
         )
         return torch.ones(tokens.shape[:-1])
-    
+    ## Stack over the last dimension
     pad_mask = torch.stack([pad_mask_dict[key] for key in keys], dim = -1)
+    ## make it as bool over the last dimension
     pad_mask = torch.any(pad_mask, dim = -1)
     pad_mask = pad_mask.to(dtype = tokens.dtype)
 
@@ -64,6 +66,7 @@ class TokenLearner(nn.Module):
         *_, time_dim, token_dim = inputs.shape
         if not self._lazy_build:
             self._build(token_dim=token_dim)
+        ## Do positional embeddin -> layer norm -> multihead attention
         x = self.pos_emb(inputs)
         x = self.layerNorm(x)
         return self.map_head(x, train)
@@ -107,10 +110,24 @@ class ImageTokenizer(nn.Module):
         self.task_film_keys = task_film_keys
         self.proper_pad_mask = proper_pad_mask
 
+        self.token_learner = TokenLearner(num_tokens) if use_token_learner else None
+
     def forward(self, observations, 
                 tasks = None, train: bool = True):
-        
+        """
+        Sequences
+        1. From observation stack keys, do regex filter -> obs_stack_key
+        2. extract input from observation stack key -> encoder input
+        3. From task stack keys, with observation, do regex filter and create task_stack_key and extract input based on tasks key -> task_inputs
+        4. concatenate enc_input(task stack keys) and task input -> enc_input
+        5. If plan to use film conditioning, from task_film_keys with regex filter, concatenate over last dimension
+        6. enc_input(concatenated with observation and task) used as image and film_conditioning used as cond_var(conditioning variables)
+        7. Put it into encoder and reshape output based on dimensions and finally put it into TokenGroup
+        """
         def extract_inputs(keys, inputs, check_spatial = False):
+            """
+            Extract inputs based on keys and concatenate over the last dimension 
+            """
             extracted_outputs = []
             for key in keys:
                 if check_spatial:
@@ -128,7 +145,7 @@ class ImageTokenizer(nn.Module):
             return None
         
         ## Stack all spatial observation and task inputs
-        enc_inputs = extract_inputs(self.task_stack_keys, observations, True)
+        enc_inputs = extract_inputs(obs_stack_keys, observations, True)
         if self.task_stack_keys:
             needed_task_key = regex_filter(self.task_stack_keys, observations.keys())
             ## if any task inputs are missing, replace with zero padding (TODO: more flexible)
@@ -148,6 +165,40 @@ class ImageTokenizer(nn.Module):
 
             enc_inputs = torch.concatenate([enc_inputs, task_inputs], dim = -1)
 
-        b, t, h, w, c = enc_inputs.shape 
-        encoder_def =   ModuleSpec.instantiate(self.num_tokens)()
-        iamge_tokens = encoder_def(enc_inputs, **enc_inputs_kwargs)
+        b, time_dim, h, w, c_total = enc_inputs.shape 
+        imgs = enc_inputs.permute(0, 1, 4, 2, 3).reshape(b * time_dim, c_total, h, w)
+
+        ## None spatial FiLM encoding 
+        encoder_kwargs = {}
+        if self.task_film_keys:
+            film_inputs = torch.cat([tasks[k] for k in regex_filter(self.task_film_keys, tasks.keys())], dim = -1)
+            if film_inputs.ndim == 2:
+                film_inputs = film_inputs[:, None].repeat(1, time_dim, 1) ## (Batch, time_dim, D_film)
+
+            encoder_kwargs['cond_var'] = film_inputs.reshape(b * time_dim, -1)
+
+        ## Run visual encoder, Encode -> tokens
+        image_tokens = self.encoder(imgs, **encoder_kwargs)
+
+        if image_tokens.ndim == 4:
+            ## [B * time_dim, Channel', H', W'] -> flatten spatial to time_dim
+            image_tokens = image_tokens.permute(0, 2, 3, 1).reshape(image_tokens.shape[0], -1, image_tokens.shape[1])
+        
+        ## Unfold time back: (B, time_dim, time_tokens , token_dim)
+        time_tokens = image_tokens.shape[1]
+        token_dim = image_tokens.shape[2]
+        image_tokens = image_tokens.reshape(b, time_dim, time_tokens, token_dim)
+
+        if self.use_token_learner:
+            image_tokens = self.token_learner(image_tokens, train= train)
+
+        if self.proper_pad_mask:
+            pad_mask = generate_proper_pad_mask(
+                tokens = image_tokens,
+                pad_mask_dict=observations.get('pad_mask_dict', None),
+                keys = obs_stack_keys
+            )
+        else:
+            pad_mask = torch.ones(image_tokens, pad_mask)
+
+        return TokenGroup(image_tokens, pad_mask)
