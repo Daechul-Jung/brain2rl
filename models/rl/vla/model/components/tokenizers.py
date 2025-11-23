@@ -202,3 +202,127 @@ class ImageTokenizer(nn.Module):
             pad_mask = torch.ones(image_tokens, pad_mask)
 
         return TokenGroup(image_tokens, pad_mask)
+    
+
+class LanguageTokenizer(nn.Module):
+    """
+    Language Tokenizer that embeds text inputs IDs into continuous language embeddings. Support pre-trained Hugging Face model
+
+    Args:
+        num_tokens (int): Number of output tokens (not enforced)
+        encoder (str, optional): Optional HuggingFace Automodel name for encoding input IDs
+        finetune_encoder (bool, optional): Optional finetune last layers of the language model
+    """
+    def __init__(self, 
+                 encoder: str = None,
+                 finetune_encoder: bool = False,
+                 proper_pad_mask: bool = True):
+        super().__init__()
+        self.encoder = encoder
+        self.finetune_encoder = finetune_encoder
+        self.proper_pad_mask = proper_pad_mask
+        self.hf_model = None
+
+        if self.encoder is not None:
+            try:
+                from transformers import AutoConfig, AutoModel, T5EncoderModel
+
+                config = AutoConfig.from_pretrained(self.encoder)
+                if "t5" in self.encoder:
+                    self.hf_model = T5EncoderModel(config)
+                else:
+                    self.hf_model = AutoModel(config)
+
+            except Exception as e:
+                raise RuntimeError(f'Failed to initialize HF model {encoder}: {e}')
+    
+
+    def forward(self, observations: Dict[str, torch.Tensor], tasks = None, train: bool = True):
+        tasks = {} if tasks is None else tasks
+        if "language_instruction" not in tasks:
+            logging.warning("No language inputs found. Skipping tokenizer entirely")
+            assert self.proper_pad_mask, "Cannot skip unless using proper pad mask"
+            return None 
+        
+        if not isinstance(tasks['language_instruction'], (torch.Tensor, torch.Tensor)):
+            assert (
+                self.encoder is not None
+            ), "Received language tokens but no encoder specified"
+            outputs = self.hf_model(**{K: (V if isinstance(V, torch.Tensor) else torch.tensor(V)) for K, V in tasks['language_instruction']})
+            tokens = outputs.last_hidden_state
+        else:
+            tokens = tasks['language_instruction']
+            if tokens.ndim == 2:
+                tokens = tokens[:, None, :]
+
+        if not self.finetune_encoder and tokens.requires_grad:
+            tokens = tokens.detach()
+
+        ### Build pad mask
+        if self.proper_pad_mask:
+            pad_mask = generate_proper_pad_mask(
+                tokens, pad_mask_dict=tasks.get('pad_mask_dict', None), keys = ('language_instruction',)
+            )
+        else:
+            pad_mask = torch.ones(tokens.shape[:-1], dtype = tokens.dtype, device = tokens.device)
+
+        return TokenGroup(tokens, pad_mask)
+    
+
+def _ndtri(p: torch.Tensor):
+    """
+    Inversed standard Normal CDF 
+    """
+    import math
+    return math.sqrt(2.0) * torch.erfinv(2.0 * p - 1.0)
+
+class BinTokenizer(nn.Module):
+    """
+    Tokenize continuous inputs via dimension-wise binning in given range
+
+    Args:
+        n_bins (int): Number of discrete bins per dimension
+        bin_type (str): Type of binning ['uniform', 'normal' = Gaussian]
+        low (float): Lower bound for bin range
+        high (float): Upper bound for bin range
+    """
+    def __init__(self, n_bins: int = 256, bin_type: str = 'uniform', low: float = 0.0, high: float = 1.0):
+        super().__init__()
+        self.n_bins = n_bins
+        self.bin_type = bin_type
+        self.low = low
+        self.high = high
+        self.eps = 1e-6
+        self.register_buffer('thresholds', torch.empty(0), persistent=False)
+
+    def _build_thresholds(self, device, dtype):
+        if self.bin_type == "uniform":
+            th = torch.linspace(self.low, self.high, self.n_bins + 1, device=device, dtype=dtype)
+        elif self.bin_type == "normal":
+            p = torch.linspace(self.eps, 1 - self.eps, self.n_bins + 1, device=device, dtype=dtype)
+            th = _ndtri(p)
+        else:
+            raise ValueError(f"Binning type {self.bin_type} not supported.")
+        self.thresholds = th
+
+    def forward(self, inputs: torch.Tensor):
+        if self.thresholds.numel() == 0 or self.thresholds.device != inputs.device or self.thresholds.dtype != inputs.dtype:
+            self._build_thresholds(inputs.device, inputs.dtype)
+
+        x = inputs
+        if self.bin_type == "uniform":
+            x = torch.clamp(x, self.low + self.eps, self.high - self.eps)
+        x = x.unsqueeze(-1) 
+
+        left = self.thresholds[:-1]
+        right = self.thresholds[1:]
+        token_bool = (x >= left) & (x < right)
+        tokens = token_bool.max(dim=-1).indices  # argmax over bins
+        return tokens  # (...,)
+
+    def decode(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Map discrete bin indices back to bin midpoints."""
+        if self.thresholds.numel() == 0:
+            self._build_thresholds(inputs.device, torch.float32)
+        bin_avgs = (self.thresholds[1:] + self.thresholds[:-1]) / 2
+        return bin_avgs[inputs]
