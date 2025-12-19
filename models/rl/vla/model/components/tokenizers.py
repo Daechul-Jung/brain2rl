@@ -5,6 +5,7 @@ import os, sys
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from scipy.stats import norm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -326,3 +327,48 @@ class BinTokenizer(nn.Module):
             self._build_thresholds(inputs.device, torch.float32)
         bin_avgs = (self.thresholds[1:] + self.thresholds[:-1]) / 2
         return bin_avgs[inputs]
+    
+
+class LowdimObsTokenizer(BinTokenizer):
+    """
+    Tokenizer for non-spatial observation 
+    Optionally discretizes into bins per dimension (see BinTokenzier)
+
+    Args:
+        obs_keys(Sequence[str]): List of non-spatial keys to concatenate & tokenize. support regex
+        discretize (bool): If True, discretizes inputs per dimension, see BinTokenizer
+    """
+
+    def __init__(self, obs_keys: Sequence[str] = tuple(), discretize: bool = False, proper_pad_mask: bool = True, **bin_kwargs):
+        super().__init__(**bin_kwargs)
+        self.obs_keys = tuple(obs_keys)
+        self.discretize = discretize
+        self.proper_pad_mask = proper_pad_mask
+
+    def forward(self, observations: Dict[str, torch.Tensor], *unused_args, **unused_kwargs):
+        assert self.obs_keys, "Need to specify observation keys to tokenize."
+
+        if len(regex_filter(self.obs_keys, sorted(observations.keys()))) == 0:
+            logging.warning(
+                f'No observation inputs matching {self.obs_keys} were found.'
+                'Skipping Tokenizer entirely.'
+            )
+            assert self.proper_pad_mask, 'Cannot skip unless using proper pad mask'
+            return None 
+        tokenizer_inputs = []
+        for o_key in self.obs_keys:
+            for key in filter(re.compile(o_key).match, sorted(observations.keys())):
+                assert(
+                    len(observations[key].shape) == 3
+                ), f'Only support non-spatial inputs but {key} has shape {observations[key].shape}'
+                tokenizer_inputs.append(observations[key])
+        tokenizer_inputs = torch.concat(tokenizer_inputs, dim = -1)
+        
+        if self.discretize:
+            tokenizer_inputs = super().forward(tokenizer_inputs)
+            tokens = F.one_hot(tokenizer_inputs, num_classes=self.n_bins).to(tokenizer_inputs.dtype)
+        else:
+            tokens = tokenizer_inputs.unsqueeze(-1)
+
+        masks = torch.ones(tokens.shape[:-1], dtype=tokens.dtype, device = tokens.device)
+        return TokenGroup(tokens, masks)
