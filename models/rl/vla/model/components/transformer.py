@@ -217,7 +217,7 @@ class Encoder1DBlock(nn.MOdule):
             self._lazy_build = True
 
         x = self.layer_norm(inputs)
-        attn_out, _ = self.attn(query = x, key = x, value = x, key_padding_mask = key_padding_mask, need_weights = False)
+        attn_out, _ = self.attn(query = x, key = x, value = x, key_padding_mask = key_padding_mask, need_weights = False, attn_mask = attention_mask)
         attn_out = self.dropout_res(attn_out) if not deterministic else attn_out
         x = attn_out + inputs
 
@@ -253,6 +253,7 @@ class Transformer(nn.Module):
         self.add_position_embedding = add_position_embedding
         self.pos_embedding = AddPositionEmbs(0.02) if add_position_embedding else None
         self.dropout = nn.Dropout(dropout_rate)
+        ### Using Encoder1DBlock for sequential data
         self.blocks = nn.ModuleList([
             Encoder1DBlock(mlp_dim=mlp_dim, num_heads=num_heads, dropout_rate=dropout_rate, attention_dropout_rate=attention_dropout_rate) for _ in range(self.num_layers)
         ])
