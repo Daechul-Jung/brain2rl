@@ -27,9 +27,9 @@ def cosine_beta_schedule(timesteps, s = 0.008):
 class ScoreActor(nn.Module):
     def __init__(self, time_preprocess: nn.Module, cond_encoder: nn.Module, reverse_network: nn.Module):
         super().__init__()
-        self.time_preprocess = time_preprocess
-        self.cond_encoder = cond_encoder
-        self.reverse_netowrk = reverse_network
+        self.time_preprocess = time_preprocess  ### FourierFeatures
+        self.cond_encoder = cond_encoder  ### MLP 
+        self.reverse_netowrk = reverse_network  ### MLPResNet 
 
     def forward(self, obs_enc, action, time, train = False):
         """
@@ -42,8 +42,10 @@ class ScoreActor(nn.Module):
             time = time[None]
         if time.shape[-1] != 1 and time.ndim >= 1:
             time = time.unsqueeze(-1)
-
+        ## Firstly encode time vector 
         t_ff = self.time_preprocess(time)
+
+        ## Secondly encoded time vector into condition encoder 
         try:
             cond_enc = self.cond_encoder(t_ff, train = train)
         except TypeError:
@@ -54,15 +56,16 @@ class ScoreActor(nn.Module):
             logging.debug(
                 "Broadcasting obs_enc from %s to %s", obs_enc, new_shape
             )
+            ### broadcast encoded observation to new shape dimension
             obs_enc = torch.broadcast_to(obs_enc, new_shape)
-
+        ### concatenate encoded time condition vector, encoded observation, and action 
         reverse_input = torch.concat([cond_enc, obs_enc, action], dim = -1)
-        eps_pred = self.reverse_netowrk(reverse_input, train= train)
+        eps_pred = self.reverse_netowrk(reverse_input, train = train)
         return eps_pred
     
 class FourierFeatures(nn.Module):
     """
-    Learnable or fixed Fourier features
+    Learnable or fixed Fourier features, time_preprocess module for ScoreActor
     Input: x[*, input_dim]
     Output: [*, output_size] with cos/sin concatenated
     """
@@ -103,7 +106,7 @@ class MLP(nn.Module):
     activate_final: whether to activate on last layer too
     """
     def __init__(self, 
-                 hidden_dims: Sequence[int], 
+                 hidden_dims: Sequence[int],  ### (2 * time_dim, time_dim)
                  activation: Callable = F.silu,
                  activate_final: bool = False,
                  use_layer_norm: bool = False,
@@ -215,9 +218,58 @@ class MLPResNet(nn.Module):
                  use_layer_norm: bool = False, 
                  hidden_dim: int = 256,
                  activation: Callable = F.silu):
+        super().__init__()
         self.num_blocks = num_blocks
         self.output_dim = output_dim
         self.dropout_rate = 0.0 if dropout_rate is None else dropout_rate
         self.use_layer_norm = use_layer_norm
         self.hidden_dim = hidden_dim
         self.activation = activation
+        self.blocks = nn.ModuleList([ 
+            MLPResNetBlock(self.hidden_dim, self.activation, dropout_rate=self.dropout_rate, use_layer_norm= self.use_layer_norm) 
+            for _ in range(self.num_blocks)])
+        self.in_proj = nn.Linear(0,0)
+        self.out_act = activation
+        self.out_proj = nn.Linear(hidden_dim, output_dim)
+        self._built = False
+        default_init(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
+
+    def _build(self, input_dim: int):
+        self.in_proj = nn.Linear(input_dim, self.hidden_dim)
+        default_init(self.in_proj.weight)
+        nn.init.zeros_(self.in_proj.bias)
+        self._built = True
+
+    def forward(self, x: torch.Tensor, train: bool = False):
+        if not self._built:
+            self._build(x.shape[-1])
+        x = self.in_proj(x)
+
+        for block in self.blocks:
+            x = block(x, train= train)
+        x = self.out_act(x)
+        x = self.out_proj(x)
+
+        return x
+    
+
+def create_diffusion_model(
+        out_dim: int,
+        time_dim: int,
+        num_blocks: int,
+        dropout_rate: float,
+        hidden_dim: int,
+        use_layer_norm: bool
+):
+    return ScoreActor(
+        FourierFeatures(time_dim, learnable=True),  ## time encoder
+        MLP((2*time_dim, time_dim)),  ## condition encoder
+        MLPResNet(  ### Reverse Network
+            num_blocks,
+            out_dim,
+            dropout_rate=dropout_rate,
+            hidden_dim=hidden_dim,
+            use_layer_norm=use_layer_norm
+        )
+    )
