@@ -94,7 +94,6 @@ class TaskPlannerLLM:
         except Exception:
             return heuristic_parse(nl_instruction, allowed)
 
-# --- Example usage ---
 if __name__ == "__main__":
     MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
     HF_TOKEN = os.getenv("HF_TOKEN")

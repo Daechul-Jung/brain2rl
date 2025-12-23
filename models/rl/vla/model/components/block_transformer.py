@@ -270,4 +270,47 @@ class BlockTransformer(nn.Module):
             attention_mask: A boolean mask of shape (batch, 1, total_tokens, total_tokens)
         
         We use the attention rules specified by each group to determine the transformer attention mask 
+        We then combine this with the padding mask to ensure that padding tokens are not attended to.
         """
+        if self.enforce_causal:
+            self.verify_causality(prefix_groups, timestep_groups)
+
+        if not self.use_correct_attention:
+            ## No longer used in new models, but keeping for backward compatability with models released in December
+            logging.warning(
+                "Using old attention computation from released Decemeber models"
+            )
+            side = 'left'
+        else:
+            side = 'right'
+
+        def _get_position(i, tokens_per_elem):
+            return np.searchsorted(np.cumsum(tokens_per_elem), i, side=side)
+        
+        horizon = timestep_groups[0].tokens.shape[1]
+        tokens_per_prefix_group = [group.tokens.shape[1] for group in prefix_groups]
+        tokens_per_timestep_group = [group.tokens.shape[2] for group in timestep_groups]
+
+        tokens_for_prefix = sum(tokens_per_prefix_group)
+        tokens_per_timestep = sum(tokens_per_timestep_group)
+
+        total_tokens = tokens_for_prefix + tokens_per_timestep * horizon 
+
+        attention_mask = np.zeros((total_tokens, total_tokens), dtype = int) ### This attention_mask includes all prefix and timestep 
+
+        def get_token_metadata(i):
+            ## Separates the areas between tokens for prefix and timestep 
+            if i < tokens_for_prefix: 
+                position = _get_position(i, tokens_per_prefix_group)
+                return TokenMetadata.create(prefix_groups[position], timestep=-1)
+            
+            i -= tokens_for_prefix
+            timestep, i = divmod(i, tokens_per_timestep)
+            position = _get_position(i, tokens_per_timestep_group)
+            return TokenMetadata.create(timestep_groups)
+        
+        for i in range(total_tokens): ## Token Attending
+            for j in range(total_tokens): ## Token being attended to 
+                metadata_i = get_token_metadata(i)
+                metadata_j = get_token_metadata(j)
+

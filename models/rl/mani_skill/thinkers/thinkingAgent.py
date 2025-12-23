@@ -9,7 +9,6 @@ into low-level actions compatible with ManiSkill control_mode="pd_ee_delta_pose"
 
 Action format expected by env (OpenArm config):
 [dx, dy, dz, dRx, dRy, dRz, gripper_target]
-where per-step deltas are clipped to ±0.1 meters/radians per your PDEEPose controller.
 """
 
 from __future__ import annotations
