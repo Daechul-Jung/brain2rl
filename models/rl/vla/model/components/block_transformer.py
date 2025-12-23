@@ -92,7 +92,11 @@ class TokenMetadata:
             attention_rules = group.attention_rules
         )
     
-    def should_attend_to(self, other_metadata: "TokenMetadata") -> bool:
+    def should_attend_to(self, other_metadata: "TokenMetadata"):
+        """
+        To check whether the token should attend or not 
+        Everythings are boolean
+        """
         attention_rule = find_match(
             self.attention_rules, other_metadata.name, AttentionRule.NEVER
         )
@@ -284,8 +288,14 @@ class BlockTransformer(nn.Module):
         else:
             side = 'right'
 
-        def _get_position(i, tokens_per_elem):
-            return np.searchsorted(np.cumsum(tokens_per_elem), i, side=side)
+        def _get_position(i, tokens_per_group):
+            """
+            i (int): index of tokens -> whether it is prefix token or timestep token
+            tokens_per_group (List): tokens_per_prefix_group or tokens_per_timestep_group to calculate cumulative sum 
+
+
+            """
+            return np.searchsorted(np.cumsum(tokens_per_group), i, side=side)
         
         horizon = timestep_groups[0].tokens.shape[1]
         tokens_per_prefix_group = [group.tokens.shape[1] for group in prefix_groups]
@@ -300,17 +310,35 @@ class BlockTransformer(nn.Module):
 
         def get_token_metadata(i):
             ## Separates the areas between tokens for prefix and timestep 
+            ## if index of token is under prefix, 
             if i < tokens_for_prefix: 
                 position = _get_position(i, tokens_per_prefix_group)
-                return TokenMetadata.create(prefix_groups[position], timestep=-1)
+                return TokenMetadata.create(prefix_groups[position], timestep=-1)  ### take last timestep 
             
-            i -= tokens_for_prefix
+            i -= tokens_for_prefix  ## to check the position of timestep token to remove prefix token index
             timestep, i = divmod(i, tokens_per_timestep)
-            position = _get_position(i, tokens_per_timestep_group)
-            return TokenMetadata.create(timestep_groups)
+            position = _get_position(i, tokens_per_timestep_group)  ## get the position of timestep token 
+            return TokenMetadata.create(timestep_groups[position], timestep)
         
-        for i in range(total_tokens): ## Token Attending
-            for j in range(total_tokens): ## Token being attended to 
-                metadata_i = get_token_metadata(i)
-                metadata_j = get_token_metadata(j)
+        for i in range(total_tokens): ## Token Attending -> Current 
+            for j in range(total_tokens): ## Token being attended to -> Past
+                metadata_i = get_token_metadata(i)  ## return attention rules which are boolean 
+                metadata_j = get_token_metadata(j)  ## return attention rules which are boolean 
+                mask = int(metadata_i.should_attend_to(metadata_j)) ### to check whether token_i should attend token_j or not 
+                attention_mask[i, j] = mask
 
+        pad_attention_mask = self.generate_pad_attention_mask(prefix_groups, timestep_groups)
+        ### combine
+        full_attn_mask = attention_mask.unsqueeze(0).unsqueeze(0).expand(timestep_groups[0].tokens.shape[0], 1, total_tokens, total_tokens)
+        full_attn_mask = attention_mask & pad_attention_mask
+        return full_attn_mask
+    
+    def verify_causality(self,
+                         prefix_groups: Sequence[PrefixGroup],
+                         timestep_groups: Sequence[TimestepGroup],
+                         ):
+        """
+        Ensures that no token can attend to another token in a future timestep
+        """
+        
+        
