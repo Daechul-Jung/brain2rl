@@ -123,8 +123,39 @@ class ContinuousActionHead(ActionHead):
     Predicts continuous actions (as opposed to discretized)
 
     Continuous actions are predicted y tanh squashing the model output to [-max_action, max_action], and then
-    optimized using a standard regression loss.
+    optimized using a standard regression loss. 
+    token_group.tokens: [Batch, horizon, n_tokens, token_dim ]
 
     You may create an embedding by either mean-pooling across tokens (use_map = False) or using multi-head
     attention pooling (use_map = True). It is recommended to use MAP when decoding from the observation token stream.
     """
+
+    def __init__(
+            self,
+            readout_key: str,
+            use_map: bool = False,
+            action_horizon: int = 1,
+            action_dim: int = 7,
+            max_action: float = 5.0,
+            loss_type: str = 'mse'
+    ):
+        super().__init__()
+        self.readout_key = readout_key
+        self.use_map = use_map
+        self.action_horizon = action_horizon
+        self.action_dim = action_dim
+        self.max_action = max_action
+        self.loss_type = loss_type
+
+        if use_map:
+            self.map_head = MAPHead(num_readout=1)
+        self.mean_proj = nn.Linear(-1, -1, bias=True)
+        self._built = False
+
+    def _build(self, token_dim):
+        self.mean_proj = nn.Linear(token_dim, self.action_horizon * self.action_dim)
+        nn.init.xavier_uniform_(self.mean_proj.weight)
+        nn.init.zeros_(self.mean_proj.bias)
+        self._built = True
+
+    def forward(self, transformer_outputs: Dict[str, TokenGroup], train: bool = True)
