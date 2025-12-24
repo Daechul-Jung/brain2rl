@@ -158,4 +158,5 @@ class ContinuousActionHead(ActionHead):
         nn.init.zeros_(self.mean_proj.bias)
         self._built = True
 
-    def forward(self, transformer_outputs: Dict[str, TokenGroup], train: bool = True)
+    def forward(self, transformer_outputs: Dict[str, TokenGroup], train: bool = True):
+        ...
