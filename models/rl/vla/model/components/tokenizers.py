@@ -280,6 +280,7 @@ def _ndtri(p: torch.Tensor):
 class BinTokenizer(nn.Module):
     """
     Tokenize continuous inputs via dimension-wise binning in given range
+    Used for discrete loss and decode the tokens 
 
     Args:
         n_bins (int): Number of discrete bins per dimension
@@ -322,7 +323,10 @@ class BinTokenizer(nn.Module):
         return tokens  # (...,)
 
     def decode(self, inputs: torch.Tensor) -> torch.Tensor:
-        """Map discrete bin indices back to bin midpoints."""
+        """
+        Map discrete bin indices back to bin midpoints.
+        inputs (torch.Tensor): predicted labels with shape of (batch, )
+        """
         if self.thresholds.numel() == 0:
             self._build_thresholds(inputs.device, torch.float32)
         bin_avgs = (self.thresholds[1:] + self.thresholds[:-1]) / 2
