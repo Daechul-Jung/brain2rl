@@ -2,7 +2,7 @@ from enum import Enum
 from fnmatch import fnmatch
 from dataclasses import dataclass
 import logging 
-from typing import Any, Dict, Mapping, Sequence, Tuple, Union, Optional
+from typing import Any, Dict, Mapping, Sequence, Tuple, Union, Optional, List
 
 import einops
 import torch
@@ -341,4 +341,48 @@ class BlockTransformer(nn.Module):
         Ensures that no token can attend to another token in a future timestep
         """
         
-        
+        ## First verify that prefix group isn't attending to any timestep group
+
+        for prefix_group in prefix_groups:
+            for ts_group in timestep_groups:
+                rule = find_match(prefix_group.attention_rules, ts_group.attention_rules, AttentionRule.NEVER)
+                assert (
+                    prefix_group.attention_rules.get(ts_group.name, AttentionRule.NEVER) == AttentionRule.NEVER
+                ), f'Causality broken! Prefix group {prefix_group.name} is attending to timestep group {ts_group.name}'
+
+        ## Next, make sure that nothing is attending to future timesteps 
+        for group in prefix_groups + timestep_groups:
+            for other_group in prefix_groups + timestep_groups:
+                rule = find_match(
+                    group.attention_rules, other_group.name,AttentionRule.NEVER
+                )
+                assert (
+                    rule != AttentionRule.ALL
+                ), f'Causality broken! WhenToAttend.ALL attends to future timesteps too.'
+
+    def pretty_print_attention_mask(self, prefix_groups: Sequence[PrefixGroup], timestep_groups: Sequence[TimestepGroup]):
+        """
+        Visualizes the attention patterns 
+        """
+        horizon = timestep_groups[0].tokens.shape[1]
+        cols = []
+        metas: List[TokenMetadata] = []
+        for pg in prefix_groups:
+            cols.append(f"{pg.name} ({pg.tokens.shape[1]} tok)")
+            metas.append(TokenMetadata.create(pg, timestep=-1))
+        for ts in range(horizon):
+            for tg in timestep_groups:
+                cols.append(f"t={ts} {tg.name} ({tg.tokens.shape[2]} tok)")
+                metas.append(TokenMetadata.create(tg, timestep=ts))
+
+        rows = []
+        for j, mj in enumerate(metas):
+            row = [cols[j]]
+            for mi in metas:
+                row.append("x" if mi.should_attend_to(mj) else " ")
+            rows.append(row)
+
+        logging.warning("Attention layout:")
+        logging.warning(" | ".join([" "] + cols))
+        for r in rows:
+            logging.warning(" | ".join(r))
