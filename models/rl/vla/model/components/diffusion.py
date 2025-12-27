@@ -25,6 +25,9 @@ def cosine_beta_schedule(timesteps, s = 0.008):
 
 
 class ScoreActor(nn.Module):
+    """
+    This Diffusion model is used for DiffusionActionHead model.
+    """
     def __init__(self, time_preprocess: nn.Module, cond_encoder: nn.Module, reverse_network: nn.Module):
         super().__init__()
         self.time_preprocess = time_preprocess  ### FourierFeatures
