@@ -171,7 +171,7 @@ class ContinuousActionHead(ActionHead):
             self._build(token_dim)
 
         if self.use_map: ### Multi-head attention pooling
-            embeddings = self.map_head(token_group, train = train)[:, :, 0, :]  ### shape is [B, horizon, token_dim]
+            embeddings = self.map_head(token_group, train = train)[:, :, 0, :]  ### shape is [B, horizon, token_dim], 
 
         else:
             embeddings = token_group.tokens.mean(dim = -2) ## taking mean over num_tokens 
@@ -205,7 +205,7 @@ class ContinuousActionHead(ActionHead):
         """
 
         mean = self.forward(transformer_output, train = train)
-        mask = (timestep_pad_mask[:, :, None, None] & action_pad_mask)
+        mask = (timestep_pad_mask[:, :, None, None] & action_pad_mask) ### None argument is same as unsqueeze
         loss, metrics = continuous_loss(mean, actions, mask, loss_type=self.loss_type)
         loss = loss * self.action_dim
         metrics['loss'] *= self.action_dim
@@ -313,7 +313,7 @@ class DiffusionActionHead(ActionHead):
         loss_type: str = 'mse',
         ## diffusion
         time_dim: int = 32,
-        num_block: int = 3,
+        num_blocks: int = 3,
         dropout_rate: float = 0.0,
         hidden_dim: int = 256,
         use_layer_norm: bool = True,
@@ -321,6 +321,59 @@ class DiffusionActionHead(ActionHead):
         n_diffusion_sample: int = 1
     ):
         super().__init__()
+        self.readout_key = readout_key
+        self.use_map = use_map
+        self.action_horizon = action_horizon
+        self.action_dim = action_dim
+        self.max_action = max_action
+        self.loss_type = loss_type
 
+        self.time_dim = time_dim
+        self.num_blocks = num_blocks
+        self.dropout_rate = dropout_rate
+        self.hidden_dim = hidden_dim
+        self.use_layer_norm = use_layer_norm
+        self.diffusion_steps = diffusion_steps
+        self.n_diffusion_sample = n_diffusion_sample
 
+        if self.use_map:
+            self.map_head = MAPHead(num_readout=1)  ### returns (batch_size, num_readouts, token_dim)
 
+        self.diffusion_model = create_diffusion_model(
+            out_dim=self.action_dim,
+            time_dim=self.time_dim,
+            num_blocks=self.num_blocks,
+            dropout_rate=self.dropout_rate,
+            hidden_dim=self.hidden_dim,
+            use_layer_norm=self.use_layer_norm
+        )
+
+        betas = cosine_beta_schedule(timesteps=self.diffusion_steps).float()
+        self.register_buffer('betas', betas)
+        self.register_buffer('alphas', 1 - betas)
+        self.register_buffer('alpha_hats', torch.cumprod(betas, dim = 0))
+
+    def _embed(self, token_group: TokenGroup, train: bool):
+        if self.use_map:
+            return self.map_head(token_group, train = train)[:, :, 0, :] ## [batch, time_dim, token_dim]
+        return token_group.tokens.mean(dim = -2)  ## [batch, time_dim, token_dim]
+    
+    def forward(
+            self, 
+            transformer_output: Dict[str, TokenGroup],
+            time: Optional[torch.Tensor] = None,
+            noisy_actions: Optional[torch.Tensor] = None,
+            train: bool = True
+    ):
+        """
+        Performs a single forward pass through the diffusion model
+        """
+        token_group = transformer_output[self.readout_key]
+
+        assert token_group.tokens.ndim == 4, (
+            f'Expected token_group.tokens to have shape (batch_size, window_size, num_tokens, embedding_size),'
+            f'but got shape {token_group.tokens.shape}'
+        )
+
+        if self.use_map: ## multi-head attention pooling
+            embeddings = self.map_head(token_group, train = train)[:, :, 0]

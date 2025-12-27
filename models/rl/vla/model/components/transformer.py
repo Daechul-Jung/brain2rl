@@ -121,7 +121,8 @@ class MAPHead(nn.Module):
             tokens, mask = x.tokens, x.mask
         else:
             mask = None 
-        ## 
+        ### Expecting x(token shape) would be (batch_size, horizon, num_tokens, token_dim)
+        ## T: horizon(time_dim), D: token_dim
         *batch_dims, T, D = tokens.shape
         
         tokens = tokens.reshape(-1, T, D)
