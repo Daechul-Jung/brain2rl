@@ -16,7 +16,7 @@ from models.rl.mani_skill.thinkers.sequential_vla_agent import *
 from models.rl.mani_skill.thinkers.task_thinker import *
 
 
-def make_env(obs_mode = 'state', control_mode = 'pd_joint_delta_pos', render_mode = 'human'):
+def make_env(obs_mode = 'rgbd', control_mode = 'pd_joint_delta_pos', render_mode = 'human'):
     env = gym.make(
         'Combined-v1',
         obs_mode = obs_mode,
@@ -24,6 +24,7 @@ def make_env(obs_mode = 'state', control_mode = 'pd_joint_delta_pos', render_mod
         robot_uids = 'so100',
         render_mode = render_mode
     )
+    env = FlattenRGBDObservationWrapper(env, rgb=True, depth=True, state=True)
     return env
 
 def main(args):

@@ -375,5 +375,224 @@ class DiffusionActionHead(ActionHead):
             f'but got shape {token_group.tokens.shape}'
         )
 
-        if self.use_map: ## multi-head attention pooling
-            embeddings = self.map_head(token_group, train = train)[:, :, 0]
+        embeddings = self._embed(token_group, train) ### Now embedding is (batch_size, window_size, embedding_dim)
+
+        B, time_dim, _ = embeddings.shape
+        
+        if time is None or noisy_actions is None:
+            time = torch.zeros(1, B, time_dim, 1, device = embeddings.device, dtype = embeddings.dtype)
+            noisy_actions = torch.zeros(1, B, time_dim, self.action_dim * self.action_horizon,
+                                        device=embeddings.device, dtype = embeddings.dtype)
+            
+        ## ScoreActor expects shape broadcastable over leading dims, 
+        ## Collapse S, B, time_dim, into one batch for MLP Score
+
+        S = time.shape[0] if time.ndim == 3 else 1
+        if time.ndim == 3:
+            time = time.unsqueeze(0) ## [1, B, time_dim, 1]
+
+        if noisy_actions.ndim == 3:
+            noisy_actions = noisy_actions.unsqueeze(0)
+
+        embeddings_rep = embeddings.unsqueeze(0).expand(time.shape[0], -1, -1, -1)
+        eps_pred = self.diffusion_model(
+            obs_enc = embeddings_rep.reshape(-1, embeddings.shape[-1]), ## [S*B*T, D]
+            actions = noisy_actions.reshape(-1, noisy_actions.shape[-1]), ## [S*B*T, H*A]
+            time = time.reshape(-1, 1),
+            train = train
+        )
+        eps_pred = eps_pred.reshape(time.shape[0], B, time_dim, -1) ## [S, B, time_dim, Horizon*action_dim]
+        return eps_pred
+    
+
+    def loss(self, 
+            transformer_output: Dict[str, TokenGroup],
+            actions: torch.Tensor,  ## [B, time_dim, H, A]
+            timestep_pad_mask: torch.Tensor, ## [B, time_dim] boolean
+            action_pad_mask: torch.Tensor,  ## [B, time_dim, H, A] boolean
+            train: bool = True
+        ):
+        """
+        Computes the loss for diffusion objective
+
+        Args:
+            transformer_output: must contain self.readout_key with shape (batch_size, window_size, num_tokens, embedding_size)
+            action: shape (batch_size, window_size, action_horizon, action_dim)
+            timestep_pad_mask: boolean array (batch, window_size) which is True if the timestep is not a padding timestep
+            action_pad_mask: boolean array (same shape of actions) which is True is the action dimension is not a padding dimension
+        """
+
+        B, time_dim = timestep_pad_mask.shape
+
+        action_flat = rearrange(actions, "b t h a -> b t (h a)").clamp(-self.max_action, self.max_action)
+
+        ## sample timestep and noise
+        S = self.n_diffusion_sample
+        device, dtype = actions.device, actions.dtype
+        time = torch.randint(0, self.diffusion_steps, (S, B, time_dim, 1), device=device)
+        noise = torch.randn((S, B, time_dim, action_flat.shape[-1]), device=device, dtype=dtype)
+
+        scale = torch.sqrt(self.alpha_hats[time]) ## [S, B, T, 1]
+        std = torch.sqrt(1.0 - self.alpha_hats[time]) ## [S, B, T, 1]
+        noisy_action = scale * action_flat.unsqueeze(0) + std * noise
+
+        pred_eps = self.forward(transformer_output, time=time, noisy_actions=noisy_action, train= train) ##[S, B, T, H*A]
+
+        mask = (timestep_pad_mask[:, :, None, None] & action_pad_mask) ## [B, T, H, A]
+        mask = rearrange(mask, "b t h a -> b t (h a)")  # [B, T, H*A]
+        mask = mask.unsqueeze(0) # [S, B, T, H*A]
+
+        loss, metric =continuous_loss(pred_eps, noise, mask, self.loss_type)
+        loss = loss * self.action_dim
+        metric['loss'] = metric['loss'] * self.action_dim
+        metric['mse'] = metric['mse'] * self.action_dim
+
+        return loss, metric
+    
+    @torch.no_grad()
+    def predict_action(
+        self, 
+        transformer_output: Dict[str, TokenGroup],
+        rng: Optional[torch.Generator] = None,
+        train: bool = False,
+        embodiment_action_dim: Optional[int] = None,
+        sample_shape: Tuple[int, ...] = (),
+        **kwargs
+    ):
+        token_group = transformer_output[self.readout_key]
+        embedding = self._embed(token_group, train)
+        B, time_dim, _ = embedding.shape
+        device, dtype = embedding.device, embedding.dtype
+
+        flat_dim = self.action_dim * self.action_horizon
+        x = torch.randn((*sample_shape, B, time_dim, flat_dim), device=device, dtype=dtype)
+
+        if embodiment_action_dim is not None:
+            eval_mask = torch.zeros((*sample_shape, B, time_dim, flat_dim), dtype=torch.bool)
+            eval_mask[..., : self.action_horizon * embodiment_action_dim] = True
+
+        else:
+            logging.warning("embodiment_action_dim is recommended if some action dims were masked during training")
+            eval_mask = torch.ones_like(x, dtype=torch.bool)
+
+        for t in reversed(range(self.diffusion_steps)):
+            tt = torch.full((*x.shape[:-1], -1), t, device = device, dtype = torch.long)
+            eps = self.forward(transformer_output, time = tt, noisy_actions=x, train = train)
+
+            alpha_t = self.alphas[t]
+            alpha_hat_t = self.alphas_hat[t]
+            alpha_hat_prev = self.alphas_hat[t-1] if t > 0 else torch.tensor(1.0, device=device, dtype = dtype)
+
+            alpha_1 = 1.0 / torch.sqrt(alpha_t)
+            alpha_2 = (1 - alpha_t) / torch.sqrt(1 - alpha_hat_t)
+            x = alpha_1 * (x - alpha_2 * eps)
+
+            if t > 0:
+                z = torch.randn_like(x, generator=rng)
+                x = x + torch.sqrt(self.betas[t]) * z
+                # keep non-evaluable dims as training noise path
+                x = torch.where(eval_mask, x, torch.sqrt(1 - alpha_hat_t) * z)
+
+            x = x.clamp(-self.max_action, self.max_action)
+
+        actions = rearrange(x, "... (h a) -> ... h a", h=self.action_horizon, a=self.action_dim)  # [..., H, A]
+        return actions[..., -1, :, :]  # last timestep in window
+    
+
+class UNetDDPMActionHead(ActionHead):
+    """
+    DDPM with 1D conditional U-Net over action sequences
+
+    Predicts actions using a diffusion process and a U-Net architecture (Unlike MLP above)
+
+    Only a single pass through the transformer is done to obtain an action embedding at each timestep. The actions 
+    are then predicted using a diffusion process conditioned on this embedding. The diffusion model architecture
+    is an 1D unet based on the implementation from chi et al
+
+    You may create an embedding by either mean-pooling across tokens (use_map=False) or using multi-head attention
+    pooling (use_map = True). It is recommended to use MAP when decoding from the observation token stream.
+    """
+    def __init__(
+        self, 
+        readout_key: str,
+        action_dim: int,
+        action_horizon: int,
+        use_map: bool = False,
+        flatten_tokens: bool = False,
+        timesteps: int = 1000,
+        max_action: float = 1.0,
+        clip_sample: Optional[float] = None,
+        variance_type: str = 'fixed_large'
+    ):
+        super().__init__()
+        self.readout_key = readout_key
+        self.action_dim = action_dim
+        self.action_horizon = action_horizon
+        self.use_map = use_map
+        self.flatten_tokens = flatten_tokens
+        self.timesteps = timesteps
+        self.max_action = max_action
+        self.clip_sample = clip_sample
+        self.variance_type = variance_type
+
+        if use_map:
+            self.map_head = MAPHead(num_readout=1)
+
+        self.action_proj = nn.Linear(action_dim, action_dim)
+
+        ## schedule
+        betas = unet_squaredcos_cap_v2(timesteps).astype('float32')
+        betas = torch.as_tensor(betas)
+
+        self.register_buffer('alphas', 1.0 - betas)
+        self.register_buffer('alphas_cumprod', torch.cumprod(1.0 - betas, dim = 0))
+
+        self.model = ConditionalUnet1D(
+            down_features=(256, 512, 1024),
+            mid_layer=2,
+            time_features=128,
+            kernel_size=5,
+            n_groups = 8
+        )
+
+    def _embed(self, token_group: TokenGroup, train: bool):
+        if self.use_map:
+            return self.map_head(token_group, train)[:, :, 0, :]
+        if self.flatten_tokens:
+            return token_group.tokens.reshape(*token_group.shape[:2], -1)
+        return token_group.tokens.mean(dim=-2) ## now embedding is (batch_size, window_size, embedding_size)
+
+    def forward(
+        self, 
+        transformer_output: Dict[str, TokenGroup],
+        time: Optional[torch.Tensor] = None, ## [B, time_dim, 1]
+        noisy_actions: Optional[torch.Tensor] = None, ## [B, time_dim, H, A]
+        train: bool = True
+    ):
+        token_group = transformer_output[self.readout_key]
+        embedding = self._embed(token_group, train)
+
+        if time is None or noisy_actions is None:
+            ## init path, shapes must broadcast later
+            B, time_dim = embedding.shape[:2]
+            time = torch.zeros(B, time_dim, 1, device = embedding.device, dtype = embedding.dtype)
+            noisy_actions = torch.zeros(B, time_dim, self.action_horizon, self.action_dim,
+                                        device = embedding.device, dtype = embedding.dtype)
+
+        ## u-net expects action as [B, C, L] -> flatten (H, A) to C and time_dim as L
+        x = rearrange(noisy_actions, 'b t h a -> b (h a) t') ## [B, H*A, time_dim]
+        cond = embedding ## [B, time_dim, D]
+        pred_eps = self.model(obs = cond, action = x, time = time, train = train) ## [B, H*A, time_dim]
+        pred_eps = rearrange(pred_eps, "b (h a) t -> b t h a", h=self.action_horizon, a=self.action_dim)
+        pred_eps = self.action_proj(pred_eps)
+        return pred_eps
+    
+    def loss(
+        self,
+        transformer_output: Dict[str, TokenGroup],
+        actions: torch.Tensor,                       # [B, >= Time_dim + H - 1, A]  (your code’s note)
+        action_pad_mask: torch.Tensor,               # same leading dims as actions, 1=valid
+        timestep_pad_mask: torch.Tensor,             # [B, Time_dim]
+        train: bool = True,
+    ):
+        B, time_dim = timestep_pad_mask.shape[:2]

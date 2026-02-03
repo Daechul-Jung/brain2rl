@@ -24,7 +24,7 @@ class RunConfig:
 
 
 class SequentialVLAAgent:
-    def __init__(self, env: gym.Env, policy, planner, device, run_config: Optional[RunConfig]):
+    def __init__(self, env: gym.Env, policy, planner, device, run_config: Optional[RunConfig] = None):
         self.env = env
         self.policy_model = policy
         self.planner = planner
@@ -33,7 +33,7 @@ class SequentialVLAAgent:
 
     def _order_task_from_prompt(self, prompt: str) -> dict:
         tasks = self.planner.plan(prompt)
-        tasks = [t for t, _ in sorted(tasks.item(), key = lambda k, v: v)]
+        tasks = [t for t, _ in sorted(tasks.items(), key = lambda kv: kv[1])]
         
         if len(tasks) == 0:
             tasks = ['push', 'pull', 'pick', 'place']
@@ -43,8 +43,6 @@ class SequentialVLAAgent:
         if 'rgb' in obs:
             rgb = obs["rgb"]
         else:
-            # raw ManiSkill obs can vary by version / wrappers
-            # helpful debug: print(obs.keys())
             raise KeyError("No 'rgb' in obs. Use FlattenRGBDObservationWrapper or adapt this function.")
         if rgb.ndim == 4:
             rgb = rgb[0]
@@ -52,8 +50,8 @@ class SequentialVLAAgent:
 
     def run_episode(self, prompt: str):
         ordered_task = self._order_task_from_prompt(prompt)
-        observation, info = self.env.reset(seed = 100 , task_sequence = {'task_sequence': ordered_task})
-
+        observation, info = self.env.reset(seed = 100 , options = {'task_sequence': ordered_task})
+        print(observation)
         logs ={
             'prompt': prompt,
             'task_sequence': ordered_task,
@@ -86,6 +84,4 @@ class SequentialVLAAgent:
                 logs["truncated"] = bool(truncated)
                 logs["steps"] = t + 1
                 break
-
-
         return logs
