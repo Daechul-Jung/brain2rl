@@ -164,8 +164,10 @@ def compute_gve(rewards, dones, truncations, next_values, gamma:float, lmbda:flo
 
     for t in reversed(range(rewards.shape[0])):
         lmbda_sum = lmbda * last_gve + (1 - lmbda) * next_values[t]
+        done_t = dones[t].float()
+        trunc_t = trunc[t].bool()
         ### if truncated, use next_value at time step t, but if not, use lambda_sum unless it is not done
-        delta = gamma * torch.where(trunc[t].bool(), next_values[t], (1.0 - dones[t]) * lmbda_sum)
+        delta = gamma * torch.where(trunc_t, next_values[t], (1.0 - done_t) * lmbda_sum) 
         last_gve = rewards[t] + delta
         gves.insert(0, last_gve)
         

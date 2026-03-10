@@ -74,8 +74,14 @@ class CombinedTaskEnv(BaseEnv):
     def _set_stage(self, stage: str):
         assert (stage in ALLOWED_TASKS), 'Out of the given stages'
         for s in self.stage_flag:
-            self.stage_flag[s] == (s == stage)
+            self.stage_flag[s] = (s == stage)   # was == (comparison, not assignment)
         self.curr_stage = stage
+
+    def _advance_stage(self):
+        """Move to the next stage in the task sequence."""
+        self.stage_idx += 1
+        next_stage = self.task_sequence[self.stage_idx]
+        self._set_stage(next_stage)
 
     def step(self, action):
         obs, reward, terminated, truncated, info = super().step(action)
@@ -85,7 +91,7 @@ class CombinedTaskEnv(BaseEnv):
         info['stage_idx'] = self.stage_idx
         info['task_sequence'] = self.task_sequence
 
-        success = info['sucess']
+        success = info['success']
         if isinstance(success, torch.Tensor):
             # for single-env, success is shape (1,)
             success_any = bool(success.any().item())
@@ -390,11 +396,12 @@ class CombinedTaskEnv(BaseEnv):
         pos_A = self.CubeA.pose.p
         pos_B = self.CubeB.pose.p
         offset = pos_A - pos_B
+        # cube_half_size is a scalar float, not a tensor – use directly
         xy_flag = (
             torch.linalg.norm(offset[..., :2], axis=1)
-            <= torch.linalg.norm(self.cube_half_size[:2]) + 0.005
+            <= self.cube_half_size * 1.414 + 0.005   # sqrt(2)*half_size diagonal
         )
-        z_flag = torch.abs(offset[..., 2] - self.cube_half_size[..., 2] * 2) <= 0.005
+        z_flag = torch.abs(offset[..., 2] - self.cube_half_size * 2) <= 0.005
         is_cubeA_on_cubeB = torch.logical_and(xy_flag, z_flag)
         # NOTE (stao): GPU sim can be fast but unstable. Angular velocity is rather high despite it not really rotating
         is_cubeA_static = self.CubeA.is_static(lin_thresh=1e-2, ang_thresh=0.5)

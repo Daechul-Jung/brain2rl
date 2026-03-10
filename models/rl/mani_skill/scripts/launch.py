@@ -1,19 +1,18 @@
 import os, sys
-import sapien
 import torch
-import torch.nn as nn
 import gymnasium as gym
 import argparse
-from transformers import pipeline, AutoModelForVision2Seq
-import mani_skill.envs 
+import mani_skill.envs
 from mani_skill.utils.wrappers import FlattenRGBDObservationWrapper
 
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+sys.path.insert(0, _PROJECT_ROOT)
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.rl.mani_skill.tasks.multiple_tasks_env import *
-from models.rl.mani_skill.thinkers.openvla_policy import *
-from models.rl.mani_skill.thinkers.sequential_vla_agent import *
-from models.rl.mani_skill.thinkers.task_thinker import *
+from models.rl.mani_skill.tasks.multiple_tasks_env import CombinedTaskEnv  # noqa: register env
+from models.rl.mani_skill.thinkers.openvla_policy import OpenVLAPolicy
+from models.rl.mani_skill.thinkers.sequential_vla_agent import SequentialVLAAgent, RunConfig
+from models.rl.mani_skill.thinkers.task_thinker import TaskPlannerLLM
 
 
 def make_env(obs_mode = 'rgbd', control_mode = 'pd_joint_delta_pos', render_mode = 'human'):

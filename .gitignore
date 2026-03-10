@@ -2,7 +2,7 @@
 data/
 dataset.csv
 *.csv
-
+ros2_ws
 # External assets
 external/openarm_mujoco/
 
