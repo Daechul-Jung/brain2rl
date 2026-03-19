@@ -7,7 +7,7 @@ from models.rl.mani_skill.tasks.multiple_tasks_env import CombinedTaskEnv  # noq
 from core.tokenizer_rl_pipeline import RLTokenizerPipeline
 
 pipe = RLTokenizerPipeline({})
-pipe.build_token_pool(X_eeg, y_labels)   # or load from .npz
+# pipe.build_token_pool(X_eeg, y_labels)   # or load from .npz
 pipe.build_agent()
 pipe.load('output/rl_tokenizer/rl_tokenizer.pth')
 

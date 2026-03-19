@@ -270,7 +270,7 @@ class RePPOAgent:
                     low, high = env.action_space.low, env.action_space.high
                     if not (np.allclose(low, -1.0) and np.allclose(high, 1.0)):
                         action_np = low + 0.5 * (action + 1.0) * (high - low)
-
+            action_np = low + 0.5 * (action + 1.0) * (high - low)
             step_return = env.step(action_np)
             next_observation, rewards, dones, truncated, infos = _split_step_return(step_return)
             next_critic_observation = next_observation

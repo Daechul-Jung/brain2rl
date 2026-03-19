@@ -45,9 +45,8 @@ class CombinedTaskEnv(BaseEnv):
         self.max_goal_height = 0.3
         self.goal_thresh = 0.025
         self.task_sequence: List[str] = ['push', 'pull', 'pick', 'stack']
-        ## Nothing in *args
-        # print(**kwargs)
-        self.stage_flag = { ## Only true for current stage
+        
+        self.stage_flag = {
             "push": False,
             "pull": False,
             "pick": False,
@@ -126,10 +125,10 @@ class CombinedTaskEnv(BaseEnv):
         """
         Load the agent. However, think about how to replace this with VLA or my own model 
         """
-        super()._load_agent(options, sapien.Pose(p = [-0.615, 0, 0]))
+        super()._load_agent(options, sapien.Pose(p = [-0.25, 0, 0]))
 
     def _load_scene(self, options: Dict):
-        self.cube_half_size = 0.05#common.to_tensor([0.02] * 3, device= self.device)
+        self.cube_half_size = 0.05
         self.table_scene = TableSceneBuilder(
             env= self, robot_init_qpos_noise=self.robot_init_qpos_noise
         )
@@ -245,71 +244,6 @@ class CombinedTaskEnv(BaseEnv):
                 pick_target[:, :2] = (torch.rand((b, 2), device=self.device) * self.cube_spawn_half_size * 2 - self.cube_spawn_half_size)
                 pick_target[:, 2] = torch.rand((b,), device=self.device) * self.max_goal_height + self.cube_half_size
                 self.pick_goal_region.set_pose(Pose.create_from_pq(p=pick_target))
-
-
-            # with torch.device(self.device):
-            # b = len(env_idx)
-            # self.table_scene.initialize(env_idx)
-            # xyz = torch.zeros((b, 3))
-            # print(xyz)
-            # xyz[:, :2] = (
-            #     torch.rand((b, 2)) * self.cube_spawn_half_size * 2
-            #     - self.cube_spawn_half_size
-            # )
-            # xyz[:, 0] += self.cube_spawn_center[0]
-            # xyz[:, 1] += self.cube_spawn_center[1]
-            # xyz[:, 2] = 0.02
-
-            # q = [1, 0, 0, 0]
-            # #### Setting target region for push
-            # obj_pose = Pose.create_from_pq(p = xyz, q = q)
-            # self.CubeA.set_pose(obj_pose)
-
-            # push_target_region_xyz = torch.tensor([0.1+ self.goal_radius, 0, 0])
-            # push_target_region_xyz[..., 2] = 1e-3 
-            # self.push_goal_region.set_pose(
-            #     Pose.create_from_pq(
-            #         p = push_target_region_xyz,
-            #         q = euler2quat(0, np.pi / 2, 0),
-            #     )
-            # )
-
-            # ### Setting target region for pull
-            # pull_target_region_xyz = torch.tensor([0.1+ self.goal_radius, 0, 0])
-            # pull_target_region_xyz[..., 2] = 1e-3
-            # self.pull_goal_region.set_pose(
-            #     Pose.create_from_pq(
-            #         p = pull_target_region_xyz,
-            #         q = euler2quat(0, np.pi/2, 0)
-            #     )
-            # )
-
-            # ### Setting target region for pick
-            # qs = randomization.random_quaternions(b, lock_x = True, lock_y = True)
-            # # self.CubeA.set_pose(Pose.create_from_pq(p = xyz, q = qs))
-            # pick_target_region_xyz = torch.zeros((b, 3))
-            # pick_target_region_xyz[:, :2] = (
-            #     torch.rand((b, 2)) * self.cube_spawn_half_size * 2
-            #     - self.cube_spawn_half_size
-            # )
-
-            # pick_target_region_xyz[:, 0] += self.cube_spawn_center[0]
-            # pick_target_region_xyz[:, 1] += self.cube_spawn_center[1]
-            # pick_target_region_xyz[:, 2] = torch.rand((b)) * self.max_goal_height + xyz[:, 2]
-            # self.pick_goal_region.set_pose(Pose.create_from_pq(pick_target_region_xyz))
-
-
-            # ### Setting target region for stack
-            # xy = torch.rand((b, 2)) * 0.2 - 0.1
-            # region = [[-0.1, -0.2], [0.1, 0.2]]
-            # sampler = randomization.UniformPlacementSampler(
-            #     bounds=region, batch_size=b, device=self.device
-            # )
-
-            # radius = torch.linalg.norm(torch.tensor([0.02, 0.02])) + 0.001
-            # cubeA_xy = xy + sampler.sample(radius, 100)
-            # cubeB_xy = xy + sampler.sample(radius, 100, verbose=False)
-
 
     def _get_obs_extra(self, info: dict):
         """

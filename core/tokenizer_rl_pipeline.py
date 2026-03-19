@@ -1,6 +1,5 @@
 """
 RL Tokenizer Pipeline
-=====================
 
 Trains a CNN EEG tokenizer that produces an *action delta* conditioned on
 the robot's current observation. The delta is added to the REPPO actor's
@@ -51,6 +50,8 @@ from typing import Dict, List, Optional, Any, Tuple
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from models.tokenization.eeg_tokenizer import *
+from models.rl.agents.eeg_reppo import *
 from models.classification.action_classifier import ActionClassifier
 from models.rl.agents.reppo import RePPOAgent, EmpiricalNormalizer
 from models.rl.utils.any_utils import (compute_gve, _env_shape,
@@ -62,273 +63,6 @@ def ensure_batch(obs: torch.Tensor) -> torch.Tensor:
     if obs.ndim == 1:
         return obs.unsqueeze(0)  
     return obs
-# ---------------------------------------------------------------------------
-# CNN EEG Tokenizer for RL
-# ---------------------------------------------------------------------------
-
-class EEGRLTokenizer(nn.Module):
-    """
-    Encodes a variable-length EEG segment into K fixed tokens (128-dim).
-    Shares the ActionClassifier CNN trunk design but is trained end-to-end
-    with the RL objective.
-
-    Args
-    ----
-    n_channels : EEG channels
-    n_times    : representative segment length (for trunk init)
-    pool_k     : number of output tokens
-    """
-
-    def __init__(self, n_channels: int, n_times: int, pool_k: int = 16):
-        super().__init__()
-        self.pool_k = pool_k
-        _dummy = ActionClassifier(
-            n_channels=n_channels, n_times=n_times,
-            n_behavior_classes=2, n_gesture_classes=2, task='behavior'
-        )
-        self.trunk = _dummy.trunk
-        self.proj  = _dummy.proj   # Linear(128, 128)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x : (B, C, T)  - EEG segment
-        Returns: (B, pool_k, 128)
-        """
-        h = self.trunk(x)                                       # (B, 128, T')
-        h = F.adaptive_avg_pool1d(h, self.pool_k)               # (B, 128, K)
-        return self.proj(h.transpose(1, 2))                     # (B, K, 128)
-
-    def load_pretrained_trunk(self, classifier_ckpt_path: str, strict: bool = False):
-        """Optionally warm-start the CNN trunk from a trained classifier."""
-        ckpt = torch.load(classifier_ckpt_path, map_location='cpu')
-        # Filter keys that belong to trunk / proj
-        trunk_sd = {k.replace('trunk.', ''): v for k, v in ckpt.items()
-                    if k.startswith('trunk.')}
-        proj_sd  = {k.replace('proj.', ''): v for k, v in ckpt.items()
-                    if k.startswith('proj.')}
-        if trunk_sd:
-            self.trunk.load_state_dict(trunk_sd, strict=strict)
-        if proj_sd:
-            self.proj.load_state_dict(proj_sd, strict=strict)
-
-
-# ---------------------------------------------------------------------------
-# Learnable EEG Action Head
-# ---------------------------------------------------------------------------
-
-class EEGActionHead(nn.Module):
-    """
-    Cross-attention from robot observation to EEG tokens → action delta.
-
-    The observation acts as a *query* that selects which parts of the EEG
-    token context are relevant for the current robot state.
-
-    Args
-    ----
-    token_dim  : EEG token dim (128)
-    obs_dim    : robot observation dimension
-    action_dim : robot action dimension
-    hidden_dim : internal attention/projection dimension
-    n_heads    : number of cross-attention heads
-    scale      : tanh output scale for action delta (default 0.3)
-    """
-
-    def __init__(self, token_dim: int, obs_dim: int, action_dim: int,
-                 hidden_dim: int = 256, n_heads: int = 4, scale: float = 0.3):
-        super().__init__()
-        self.scale = scale
-
-        # Project observation → query
-        self.obs_proj = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-        )
-        # Project EEG tokens → key/value space
-        self.token_proj = nn.Linear(token_dim, hidden_dim)
-
-        self.cross_attn = nn.MultiheadAttention(
-            embed_dim=hidden_dim, num_heads=n_heads,
-            batch_first=True, dropout=0.1
-        )
-        self.out = nn.Linear(hidden_dim, action_dim)
-
-    def forward(self, obs: torch.Tensor, eeg_tokens: torch.Tensor) -> torch.Tensor:
-        """
-        obs        : (B, obs_dim)
-        eeg_tokens : (B, K, 128)
-        Returns    : (B, action_dim) action delta in [-scale, scale]
-        """
-        q = self.obs_proj(obs).unsqueeze(1)       # (B, 1, H)
-        kv = self.token_proj(eeg_tokens)           # (B, K, H)
-        attn_out, _ = self.cross_attn(q, kv, kv)  # (B, 1, H)
-        delta = torch.tanh(self.out(attn_out.squeeze(1))) * self.scale
-        return delta                               # (B, action_dim)
-
-
-# ---------------------------------------------------------------------------
-# EEG Token Pool (pre-computed per task label)
-# ---------------------------------------------------------------------------
-
-class EEGTokenPool:
-    """
-    Stores a pool of pre-extracted EEG tokens indexed by action label.
-    During rollout, call sample(label) to get a token tensor for that label.
-
-    Args
-    ----
-    tokens      : (N, K, 128) – from EEGRLTokenizer.forward(X)
-    labels      : (N,) int – action label per segment
-    device      : torch device
-    """
-
-    def __init__(self, tokens: np.ndarray, labels: np.ndarray, device: torch.device):
-        self.device = device
-        unique = np.unique(labels)
-        self._pool: Dict[int, torch.Tensor] = {}
-        for lbl in unique:
-            mask = labels == lbl
-            t = torch.from_numpy(tokens[mask].astype(np.float32)).to(device)
-            self._pool[int(lbl)] = t   # (N_lbl, K, 128)
-
-    def sample(self, label: int, n: int = 1) -> torch.Tensor:
-        """Return (n, K, 128) tensor for the given label."""
-        pool = self._pool.get(label)
-        if pool is None:
-            # Fall back to random label
-            pool = next(iter(self._pool.values()))
-        idx = torch.randint(0, len(pool), (n,))
-        return pool[idx]                           # (n, K, 128)
-
-    def sample_batch(self, labels: List[int]) -> torch.Tensor:
-        """Return (B, K, 128) where each row matches labels[i]."""
-        return torch.stack([self.sample(int(l), 1).squeeze(0) for l in labels])
-
-
-# ---------------------------------------------------------------------------
-# REPPO + EEG Action Head: augmented collect
-# ---------------------------------------------------------------------------
-
-class EEGConditionedREPPO:
-    """
-    Wraps RePPOAgent to inject an EEG-conditioned action delta at every step.
-
-    Args
-    ----
-    reppo       : RePPOAgent instance
-    tokenizer   : EEGRLTokenizer  (CNN)
-    action_head : EEGActionHead
-    token_pool  : EEGTokenPool
-    task_label  : current task int label (updated externally between episodes)
-    """
-
-    def __init__(self, reppo: RePPOAgent, tokenizer: EEGRLTokenizer,
-                 action_head: EEGActionHead, token_pool: EEGTokenPool,
-                 task_label: int = 0):
-        self.reppo       = reppo
-        self.tokenizer   = tokenizer
-        self.action_head = action_head
-        self.pool        = token_pool
-        self.task_label  = task_label
-        self.device      = reppo.device
-
-    # convenience
-    @property
-    def actor(self): return self.reppo.actor
-    @property
-    def critic(self): return self.reppo.critic
-    @property
-    def old_actor(self): return self.reppo.old_actor
-
-    def _eeg_delta(self, norm_obs: torch.Tensor) -> torch.Tensor:
-        """Sample EEG tokens and compute action delta for batch of obs."""
-        B = norm_obs.shape[0]
-        eeg_tokens = self.pool.sample_batch([self.task_label] * B).to(self.device)
-        return self.action_head(norm_obs, eeg_tokens)              # (B, act_dim)
-
-    def collect(self, env, observation, critic_observation, num_steps: int = 128):
-        """
-        Same signature as RePPOAgent.collect, but blends in EEG action delta.
-        """
-        N, _, asymmetric = _env_shape(env)
-        trajectory = []
-        info_list  = []
-        EPS = 1e-6
-
-        if observation is None:
-            ret = env.reset()
-            observation = ret[0] if isinstance(ret, tuple) else ret
-        if critic_observation is None:
-            critic_observation = observation
-
-        observation = _to_tensor(observation, self.device)
-        critic_observation = _to_tensor(critic_observation, self.device)
-        observation = ensure_batch(observation)
-        critic_observation = ensure_batch(critic_observation)
-
-        for step_idx in range(num_steps):
-            if step_idx % 10 == 0:
-                print(f"[collect] step {step_idx}/{num_steps}", flush=True)
-            norm_obs  = self.reppo.observation_normalizer(observation)
-            norm_cobs = self.reppo.critic_observation_normalizer(critic_observation)
-
-            with torch.no_grad():
-                pi, _, _, _ = self.reppo._actor_forward(norm_obs)
-                base_action = pi.sample().clamp(-1 + EPS, 1 - EPS)
-                delta = self._eeg_delta(norm_obs)
-                blended_action = torch.tanh(base_action + delta).clamp(-1 + EPS, 1 - EPS)
-                log_prob = pi.log_prob(blended_action).sum(-1)
-
-                action_np = blended_action.detach().cpu().numpy().astype(np.float32)
-
-            step_return = env.step(action_np)
-            next_obs, rewards, dones, truncated, infos = _split_step_return(step_return)
-            next_cobs = next_obs
-
-            _next_obs  = _to_tensor(next_obs, self.device)
-            _next_cobs = _to_tensor(next_cobs, self.device)
-            _next_obs = ensure_batch(_next_obs)
-            _next_cobs = ensure_batch(_next_cobs)
-            next_norm_obs  = self.reppo.observation_normalizer(_next_obs)
-            next_norm_cobs = self.reppo.critic_observation_normalizer(_next_cobs)
-
-            with torch.no_grad():
-                next_pi, _, next_temp, _ = self.reppo._actor_forward(next_norm_obs)
-                next_action = next_pi.sample().clamp(-1 + EPS, 1 - EPS)
-                next_log_prob = next_pi.log_prob(next_action).sum(-1)
-                next_value, _, _, next_features = self.reppo._critic_forward(
-                    next_norm_cobs, next_action)
-                rewards_t = _to_tensor(rewards, self.device).view(-1)
-                shaped_r  = rewards_t - next_log_prob * next_temp * self.reppo.gamma
-                blended_t = _to_tensor(blended_action.detach().cpu().numpy(), self.device)
-
-            (obs_b, cobs_b, act_b, logp_b, rew_b,
-             raw_rew_b, nfeat_b, nval_b, done_b, trunc_b) = wrap_batch_dim(
-                norm_obs, norm_cobs, blended_t, log_prob,
-                shaped_r, rewards_t, next_features, next_value,
-                dones, truncated, self.device
-            )
-
-            td = TensorDict({
-                "observation":        obs_b,
-                "critic_observation": cobs_b,
-                "actions":            act_b,
-                "log_prob":           logp_b,
-                "rewards":            rew_b,
-                "raw_rewards":        raw_rew_b,
-                "next_embedding":     nfeat_b,
-                "next_values":        nval_b,
-                "dones":              done_b,
-                "truncations":        trunc_b,
-            }, batch_size=(N,))
-
-            trajectory.append(td)
-            info_list.append(infos)
-
-            observation = _to_tensor(next_obs, self.device)
-            critic_observation = _to_tensor(next_cobs, self.device)
-
-        return torch.stack(trajectory, dim=0), norm_obs, norm_cobs, info_list
-
 
 # ---------------------------------------------------------------------------
 # RL Tokenizer Training Pipeline
@@ -361,11 +95,11 @@ class RLTokenizerPipeline:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.logger = self._make_logger()
 
-        self.reppo       : Optional[RePPOAgent]          = None
-        self.tokenizer   : Optional[EEGRLTokenizer]      = None
-        self.action_head : Optional[EEGActionHead]       = None
+        self.reppo       : Optional[RePPOAgent] = None
+        self.tokenizer   : Optional[EEGRLTokenizer] = None
+        self.action_head : Optional[EEGActionHead] = None
         self.agent_wrap  : Optional[EEGConditionedREPPO] = None
-        self.token_pool  : Optional[EEGTokenPool]        = None
+        self.token_pool  : Optional[EEGTokenPool] = None
         self.eeg_optimizer = None
 
     def _make_logger(self) -> logging.Logger:
@@ -531,29 +265,22 @@ class RLTokenizerPipeline:
                 'gve':                torch.stack(gves, dim=0),
             }, batch_size=(num_step, N_envs), device=self.device).float().flatten(0, 1).detach()
 
-            # --- SGD update ---
             for _ in range(num_epoch):
                 idx = torch.randperm(num_step * N_envs, device=self.device)
                 data_shuf = data[idx].contiguous()
                 for mb in range(num_mini_batch):
                     batch = data_shuf[mb * batch_size: (mb + 1) * batch_size]
 
-                    # REPPO critic update
                     critic_logs = self.reppo.update_critic(batch)
 
-                    # REPPO actor update (also updates EEG head via shared obs)
                     actor_logs = self.reppo.update_actor(batch)
 
-                    # EEG tokenizer + action head update
-                    # Re-compute action delta and use actor loss gradient
                     obs_b = batch['observation']
                     eeg_tokens = self.token_pool.sample_batch(
                         [task_label] * len(obs_b)).to(self.device)
                     self.tokenizer.train(); self.action_head.train()
                     delta = self.action_head(obs_b, eeg_tokens)
 
-                    # Penalize large deltas (regularization) and align with
-                    # the actor's intended action direction
                     delta_reg_loss = delta.pow(2).mean() * 0.01
                     self.eeg_optimizer.zero_grad()
                     delta_reg_loss.backward()
@@ -562,7 +289,6 @@ class RLTokenizerPipeline:
                         list(self.action_head.parameters()), 0.5)
                     self.eeg_optimizer.step()
 
-            # Sync old actor
             with torch.no_grad():
                 for p, q in zip(self.reppo.actor.parameters(),
                                 self.reppo.old_actor.parameters()):
@@ -570,7 +296,6 @@ class RLTokenizerPipeline:
 
         return all_returns
 
-    # ------------------------------------------------------------------
     def save(self, path: str):
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
         ckpt = {
@@ -636,7 +361,7 @@ def main():
     parser.add_argument('--obs-mode', default='state')
     parser.add_argument('--control-mode', default='pd_joint_delta_pos')
     parser.add_argument('--total-steps', type=int, default=200_000)
-    parser.add_argument('--num-step', type=int, default=128)
+    parser.add_argument('--num-step', type=int, default=12800)
     parser.add_argument('--pool-k', type=int, default=16)
     parser.add_argument('--eeg-scale', type=float, default=0.3)
     parser.add_argument('--classifier-ckpt', default=None,
@@ -662,9 +387,18 @@ def main():
     N, C, T = X.shape
 
     # --- Make environment ---
+    if args.render:
+        os.environ.pop("PYOPENGL_PLATFORM", None)
+
     render_mode = 'human' if args.render else None
-    env = gym.make(args.env, obs_mode=args.obs_mode,
-                   control_mode=args.control_mode, render_mode=render_mode)
+    print(f"[env] render_mode={render_mode}, PYOPENGL_PLATFORM={os.environ.get('PYOPENGL_PLATFORM')}")
+
+    env = gym.make(
+        args.env,
+        obs_mode=args.obs_mode,
+        control_mode=args.control_mode,
+        render_mode=render_mode
+    )
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
