@@ -64,10 +64,6 @@ def ensure_batch(obs: torch.Tensor) -> torch.Tensor:
         return obs.unsqueeze(0)  
     return obs
 
-# ---------------------------------------------------------------------------
-# RL Tokenizer Training Pipeline
-# ---------------------------------------------------------------------------
-
 class RLTokenizerPipeline:
     """
     End-to-end training of REPPO + EEG tokenizer + action head.

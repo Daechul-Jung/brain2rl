@@ -155,8 +155,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--kl-start',      type=float, default=0.01)
     p.add_argument('--entropy-start', type=float, default=0.01)
     p.add_argument('--num-atoms',     type=int,   default=151)
-    p.add_argument('--vmin',          type=float, default=-2500.0)
-    p.add_argument('--vmax',          type=float, default=2500.0)
+    p.add_argument('--vmin',          type=float, default=-50.0)
+    p.add_argument('--vmax',          type=float, default=50.0)
 
     # Checkpointing
     p.add_argument('--output',      type=str, default='output/reppo_maniskill/checkpoint.pth',

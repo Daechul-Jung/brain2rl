@@ -41,7 +41,7 @@ class CombinedTaskEnv(BaseEnv):
         self.goal_radius = 0.1
         self.cube_half_size = 0.2
         self.cube_spawn_center = (0,0)
-        self.cube_spawn_half_size = 0.05
+        self.cube_spawn_half_size = 0.03
         self.max_goal_height = 0.3
         self.goal_thresh = 0.025
         self.task_sequence: List[str] = ['push', 'pull', 'pick', 'stack']
@@ -232,11 +232,11 @@ class CombinedTaskEnv(BaseEnv):
                 self.CubeB.set_pose(Pose.create_from_pq(p=xyz_b, q=q))
 
                 # --- Push target region ---
-                push_target = torch.tensor([0.1 + self.goal_radius, 0.0, 1e-3], device=self.device).repeat(b, 1)
+                push_target = torch.tensor([0.05 + self.goal_radius, 0.0, 1e-3], device=self.device).repeat(b, 1)
                 self.push_goal_region.set_pose(Pose.create_from_pq(p=push_target, q=euler2quat(0, np.pi / 2, 0)))
 
                 # --- Pull target region ---
-                pull_target = torch.tensor([0.1 + self.goal_radius, 0.0, 1e-3], device=self.device).repeat(b, 1)
+                pull_target = torch.tensor([0.05 + self.goal_radius, 0.0, 1e-3], device=self.device).repeat(b, 1)
                 self.pull_goal_region.set_pose(Pose.create_from_pq(p=pull_target, q=euler2quat(0, np.pi / 2, 0)))
 
                 # --- Pick target region ---
