@@ -9,20 +9,24 @@ from models.rl.agents.sac import *
 from models.rl.utils.train import train_reppo, train_agent_with_buffer, train_agent
 from models.rl.envs.openarm_mj_env import OpenArmMjEnv
 
-def make_env(sim, mjcf, steps, render):
+def make_env(sim, mjcf, steps, render, camera=None, camera_in_info=False, vision_reward_weight=0.0):
     
     if sim == "mujoco":
-        # Use the new scene file with cameras and multiple cups
-        xml = mjcf or os.path.join(os.path.dirname(__file__), '..', 'envs', 'openarm_scene_with_cameras.xml')
-
+        # Scene XML must live next to openarm_bimanual.xml so mesh includes resolve correctly
+        xml = mjcf or os.path.join(
+            os.path.dirname(__file__), '..', '..', '..',
+            'external', 'openarm_mujoco', 'v1', 'openarm_bimanual_pick_place_scene.xml'
+        )
         return OpenArmMjEnv(
             xml_path=xml,
-            # camera='left_wrist_cam',  # Use the wrist-mounted camera 
+            camera=camera,
             camera_size=(256, 256),
-            horizon=steps, 
+            camera_in_info=camera_in_info,
+            vision_reward_weight=vision_reward_weight,
+            horizon=steps,
             render=render,
             action_scale=1,
-            target_cup='cup1'  # Target the brown cup
+            target_cup='cup',
         )
     
     else:
@@ -51,6 +55,12 @@ if __name__ == "__main__":
     p.add_argument("--sim", choices=["mujoco","gym"], default="mujoco")
     p.add_argument("--mjcf", type=str, default=None)
     p.add_argument("--render", action="store_true")
+    p.add_argument("--camera", type=str, default=None,
+                   help="Named MuJoCo camera to render, e.g. front_camera or side_camera")
+    p.add_argument("--camera-in-info", action="store_true",
+                   help="Attach RGB camera frames to the env info dict")
+    p.add_argument("--vision-reward-weight", type=float, default=0.0,
+                   help="Optional weight for cup-centering camera reward")
     p.add_argument("--steps", type=int, default=1000)
     p.add_argument("--episodes", type=int, default=1)
     p.add_argument("--env", type=str, default="Humanoid-v5")
@@ -63,7 +73,15 @@ if __name__ == "__main__":
 
     # Create environment
     import mujoco
-    env = make_env(args.sim, args.mjcf, args.steps, args.render)
+    env = make_env(
+        args.sim,
+        args.mjcf,
+        args.steps,
+        args.render,
+        camera=args.camera,
+        camera_in_info=args.camera_in_info,
+        vision_reward_weight=args.vision_reward_weight,
+    )
     obs_space = env.observation_space
     act_space = env.action_space
     print(f'Observation space: {obs_space.shape} and action space: {act_space.shape}')
@@ -92,4 +110,3 @@ if __name__ == "__main__":
 
     # Note: render_agent is commented out as it's designed for gym environments
     # render_agent(agent, args.env, episodes=args.episodes)
-

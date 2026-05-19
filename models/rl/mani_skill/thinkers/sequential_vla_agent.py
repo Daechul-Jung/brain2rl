@@ -122,15 +122,16 @@ class SequentialVLAAgent:
                 except Exception:
                     pass
 
-            if t % self.cfg.print_every == 0:
-                rew_val = float(reward[0]) if hasattr(reward, '__len__') else float(reward)
-                print(f"[t={t:04d}] stage={info.get('curr_stage','?')}  "
-                      f"reward={rew_val:.3f}  success={info.get('success')}")
+            # if t % self.cfg.print_every == 0:
+            #     reward = []
+            #     rew_val = float(reward[0]) if hasattr(reward, '__len__') else float(reward)
+            #     print(f"[t={t:04d}] stage={info.get('curr_stage','?')}  "
+            #           f"reward={rew_val:.3f}  success={info.get('success')}")
 
-            if terminated or truncated:
-                logs['terminated'] = bool(terminated) if not hasattr(terminated, '__len__') else bool(terminated.any())
-                logs['truncated'] = bool(truncated) if not hasattr(truncated, '__len__') else bool(truncated.any())
-                logs['steps'] = t + 1
-                break
+            # if terminated or truncated:
+            #     logs['terminated'] = bool(terminated) if not hasattr(terminated, '__len__') else bool(terminated.any())
+            #     logs['truncated'] = bool(truncated) if not hasattr(truncated, '__len__') else bool(truncated.any())
+            #     logs['steps'] = t + 1
+            #     break
 
         return logs

@@ -5,8 +5,6 @@ RL Training Pipeline
 This module handles the reinforcement learning training of OpenArm robot
 using tokenized brain signal data for trajectory optimization.
 
-Author: Daechul Jung
-Version: 1.0.0
 """
 
 import os

@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np, mujoco
 from gymnasium import spaces
 import imageio.v2 as imageio
@@ -16,6 +18,7 @@ class OpenArmMjEnv:
                  camera=None, 
                  camera_size=(256,256), 
                  camera_in_info = False, 
+                 vision_reward_weight: float = 0.0,
 
                  target_cup = 'cup1',
                  goal_mode: str = 'left_to_right', 
@@ -50,6 +53,9 @@ class OpenArmMjEnv:
         self.time_penalty = float(time_penalty)
 
         self.camera_size = camera_size
+        self.camera = camera
+        self.camera_in_info = bool(camera_in_info)
+        self.vision_reward_weight = float(vision_reward_weight)
         ###### Weights for rewards components #####
 
 
@@ -126,6 +132,27 @@ class OpenArmMjEnv:
 
         # rendering
         self.viewer = None
+        self.renderer = None
+        if self.camera is not None:
+            mujoco_gl = os.environ.get("MUJOCO_GL", "").lower()
+            if mujoco_gl not in {"egl", "osmesa", "glfw"}:
+                warnings.warn(
+                    f"Camera '{self.camera}' requested without MUJOCO_GL=egl/osmesa/glfw. "
+                    "Camera frames and vision reward will be disabled.",
+                    RuntimeWarning,
+                )
+                self.camera = None
+            else:
+                height, width = self.camera_size
+                try:
+                    self.renderer = mujoco.Renderer(self.model, height=height, width=width)
+                except BaseException as exc:
+                    warnings.warn(
+                        f"Could not create MuJoCo camera renderer for '{self.camera}': {exc}. "
+                        "Camera frames and vision reward will be disabled.",
+                        RuntimeWarning,
+                    )
+                    self.camera = None
         if render:
             try:
                 from mujoco import viewer
@@ -139,6 +166,12 @@ class OpenArmMjEnv:
         self.jid_goal_free = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "goal_freejoint")
         self.sid_goal_site = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE,  "goal_site")
         assert self.jid_goal_free >= 0 and self.sid_goal_site >= 0, "Add goal_marker to XML as shown."
+
+    def _render_camera(self):
+        if self.renderer is None or self.camera is None:
+            return None
+        self.renderer.update_scene(self.data, camera=self.camera)
+        return self.renderer.render().copy()
 
     def _free_qpos_slice(self, joint_id):
         jadr = self.model.jnt_qposadr[joint_id]
@@ -281,6 +314,10 @@ class OpenArmMjEnv:
 
         obs = self._get_obs()
         info = {"goal_pos": self.goal_pos.copy()}
+        if self.camera_in_info:
+            image = self._render_camera()
+            if image is not None:
+                info["camera_rgb"] = image
         return obs, info
 
     def step(self, action):
@@ -296,6 +333,17 @@ class OpenArmMjEnv:
 
         # reward
         r, shaped = self._calculate_reward(ee, cup, action)
+        image = None
+        if self.camera is not None and (self.camera_in_info or self.vision_reward_weight > 0.0):
+            image = self._render_camera()
+            if image is not None and self.vision_reward_weight > 0.0:
+                vision_reward, vision_info = self.vision_detector.calculate_vision_reward(
+                    image,
+                    target_cup=self.target,
+                )
+                r = r + self.vision_reward_weight * vision_reward
+                shaped["vision_reward"] = vision_reward
+                shaped["vision_info"] = vision_info
 
         # success if cup at goal (no need to force release)
         cup_to_goal = np.linalg.norm(cup - self.goal_pos)
@@ -310,6 +358,11 @@ class OpenArmMjEnv:
             "total_reward": float(r),
             "goal_pos": self.goal_pos.copy(),
         }
+        if "vision_reward" in shaped:
+            info["vision_reward"] = float(shaped["vision_reward"])
+            info["vision_info"] = shaped["vision_info"]
+        if self.camera_in_info and image is not None:
+            info["camera_rgb"] = image
 
         if self.render and self.viewer:
             self.viewer.sync()

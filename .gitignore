@@ -16,7 +16,10 @@ __pycache__/
 
 # macOS
 .DS_Store
-CLAUDE.md
+
+# Harness / Claude Code agent config (not for git)
+.agents/
+
 # Generated artifacts
 output/
 *.npz
